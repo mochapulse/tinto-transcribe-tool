@@ -138,7 +138,11 @@ int main(int argc, char** argv) {
   std::vector<std::string> rest(args.begin() + 1, args.end());
 
   tinto::Config cfg = tinto::DefaultConfig();
-  // TODO(feat/init-profile): merge ~/.tinto/profile.json here (below flags).
+  // Merge machine profile (written by `tinto init`). Profile values fill in
+  // fields that the user did not override with a CLI flag.
+  if (auto profile = tinto::ReadProfile(); profile.has_value()) {
+    tinto::MergeProfile(cfg, *profile);
+  }
   std::string error;
   if (!ApplyFlags(cfg, rest, error)) {
     std::cerr << "tinto: " << error << "\n";
