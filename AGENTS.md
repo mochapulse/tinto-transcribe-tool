@@ -57,6 +57,10 @@ when a decision changes.
 - **Commits:** small, focused, imperative mood, English (e.g. `Add loopback
   capture for Windows 11`). Follow the repo's trailer convention (no AI
   attribution lines).
+- **Versioning:** the repo-root `VERSION` file is the single source of truth.
+  CMake reads it and generates `tinto/version.hpp` (do not edit a committed
+  version header — there isn't one). Bump `VERSION` only, then tag the release
+  to match (`vX.Y.Z`).
 
 ## Before you finish
 

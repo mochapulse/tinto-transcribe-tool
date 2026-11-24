@@ -5,7 +5,15 @@ add_library(tinto_core STATIC
   src/profile.cpp
 )
 
-target_include_directories(tinto_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+# Generate version.hpp from the repo-root VERSION file (single source of truth).
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/tinto/version.hpp.in
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/tinto/version.hpp
+  @ONLY)
+
+target_include_directories(tinto_core PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR}/generated)
 target_include_directories(tinto_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 target_compile_options(tinto_core PRIVATE -Wall -Wextra)
 
