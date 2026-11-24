@@ -17,6 +17,7 @@
 #include "tinto/paths.hpp"
 #include "tinto/profile.hpp"
 #include "tinto/version.hpp"
+#include "tinto/whisper_info.hpp"
 
 namespace {
 
@@ -78,8 +79,12 @@ int CmdRecord(const tinto::Config& cfg) {
 }
 
 int CmdStatus() {
+  const bool whisper = !tinto::WhisperBuildInfo().empty();
   std::cout << "status: no worker running (control plane not implemented yet, "
-               "feat/daemon)\n";
+               "feat/daemon)\n"
+            << "  transcription backend: "
+            << (whisper ? "whisper (available)" : "none (built without whisper)")
+            << "\n";
   return 1;  // non-zero when nothing is running (plan, §9)
 }
 
