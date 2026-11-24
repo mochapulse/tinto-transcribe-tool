@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "tinto/profile.hpp"
+
 // Runtime configuration. Precedence (resolved by the CLI):
 //   CLI flag  >  machine profile (~/.tinto/profile.json)  >  built-in default.
 namespace tinto {
@@ -37,8 +39,14 @@ struct Config {
 // Built-in defaults (lowest precedence).
 Config DefaultConfig();
 
+// Overlay profile defaults onto cfg. Only fields that cfg still has at their
+// built-in default are overwritten; anything already changed (e.g. by a CLI
+// flag applied before this call) is left alone.
+void MergeProfile(Config& cfg, const Profile& profile);
+
 // Human-readable names (for status output / logging).
 const char* ToString(Mode m);
 const char* ToString(Quality q);
+const char* ToString(Backend b);
 
 }  // namespace tinto
