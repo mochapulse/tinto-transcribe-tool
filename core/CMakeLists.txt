@@ -4,6 +4,8 @@ add_library(tinto_core STATIC
   src/capture_miniaudio.cpp
   src/profile.cpp
   src/storage.cpp
+  src/models.cpp
+  src/pipeline.cpp
 )
 
 # Generate version.hpp from the repo-root VERSION file (single source of truth).

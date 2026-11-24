@@ -7,6 +7,9 @@
 // ~/.tinto layout are in place; each command's real work is filled in by its
 // feature module (capture, gate, transcriber, profiler, daemon).
 
+#include <atomic>
+#include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -14,7 +17,9 @@
 #include <vector>
 
 #include "tinto/config.hpp"
+#include "tinto/models.hpp"
 #include "tinto/paths.hpp"
+#include "tinto/pipeline.hpp"
 #include "tinto/profile.hpp"
 #include "tinto/version.hpp"
 #include "tinto/whisper_info.hpp"
@@ -70,11 +75,40 @@ int CmdInit() {
 
 int CmdRecord(const tinto::Config& cfg) {
   tinto::paths::ensure_layout();
-  std::cout << "record: mode=" << tinto::ToString(cfg.mode)
-            << " quality=" << tinto::ToString(cfg.quality)
-            << " lang=" << cfg.lang << "\n"
-            << "record: pipeline not implemented yet "
-               "(feat/capture, feat/gate, feat/transcribe, feat/daemon)\n";
+
+  tinto::Pipeline::ModelPaths model_paths;
+  const bool needs_transcription =
+      (cfg.mode == tinto::Mode::kRecordTranscribe ||
+       cfg.mode == tinto::Mode::kTranscribeOnly);
+
+  if (needs_transcription) {
+    model_paths.asr_model = tinto::FindAsrModel(cfg.quality);
+    model_paths.vad_model = tinto::FindVadModel();
+    if (model_paths.asr_model.empty()) {
+      std::cerr << "record: no ASR model found for quality="
+                << tinto::ToString(cfg.quality)
+                << " in " << tinto::paths::models_dir().string() << "\n";
+      return 1;
+    }
+    if (model_paths.vad_model.empty()) {
+      std::cerr << "record: no VAD model found in "
+                << tinto::paths::models_dir().string() << "\n";
+      return 1;
+    }
+  }
+
+  tinto::Pipeline pipeline(cfg, std::move(model_paths));
+  if (!pipeline.Start()) {
+    return 1;
+  }
+
+  static std::atomic<bool> stop{false};
+  stop.store(false);
+  std::signal(SIGINT, [](int) { stop.store(true); });
+  std::signal(SIGTERM, [](int) { stop.store(true); });
+
+  pipeline.Run(stop);
+  pipeline.Finish();
   return 0;
 }
 
@@ -113,6 +147,26 @@ bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
       if (!next(cfg.out)) return false;
     } else if (a == "--device") {
       if (!next(cfg.device)) return false;
+    } else if (a == "--mode") {
+      std::string val;
+      if (!next(val)) return false;
+      if (val == "record-only" || val == "1") cfg.mode = tinto::Mode::kRecordOnly;
+      else if (val == "record+transcribe" || val == "2") cfg.mode = tinto::Mode::kRecordTranscribe;
+      else if (val == "transcribe-only" || val == "3") cfg.mode = tinto::Mode::kTranscribeOnly;
+      else { error = "unknown mode: " + val; return false; }
+    } else if (a == "--quality") {
+      std::string val;
+      if (!next(val)) return false;
+      if (val == "base") cfg.quality = tinto::Quality::kBase;
+      else if (val == "small") cfg.quality = tinto::Quality::kSmall;
+      else if (val == "medium") cfg.quality = tinto::Quality::kMedium;
+      else if (val == "turbo") cfg.quality = tinto::Quality::kTurbo;
+      else { error = "unknown quality: " + val; return false; }
+    } else if (a == "--threads") {
+      std::string val;
+      if (!next(val)) return false;
+      cfg.threads = std::atoi(val.c_str());
+      if (cfg.threads < 1) { error = "threads must be >= 1"; return false; }
     } else {
       error = "unknown option: " + a;
       return false;
