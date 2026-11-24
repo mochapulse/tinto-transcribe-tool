@@ -31,7 +31,8 @@ target_link_libraries(tinto_core PUBLIC pthread m dl)
 if(TINTO_WITH_WHISPER)
   target_sources(tinto_core PRIVATE
     src/whisper_info.cpp
-    src/transcriber_whisper.cpp)
+    src/transcriber_whisper.cpp
+    src/gate_whisper_vad.cpp)
   target_link_libraries(tinto_core PUBLIC whisper)
   target_compile_definitions(tinto_core PUBLIC TINTO_WITH_WHISPER=1)
 endif()
