@@ -83,6 +83,34 @@ Three initial modes must be respected when touching the pipeline:
 2. Record audio **and** stream a real-time transcript to a `.md` file.
 3. Real-time transcript only, deleting audio after it is processed.
 
+## Deployment & install
+
+One-line install, self-contained, **CLI only for now** (UI comes later).
+
+- **Install commands:**
+  - Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.sh | sh`
+  - Windows (PowerShell): `irm https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.ps1 | iex`
+- **The installer must leave a ready-to-use tinto with zero fuss:**
+  1. Detect OS + arch.
+  2. Download the **prebuilt self-contained `tinto` binary** (whisper.cpp +
+     miniaudio statically linked — no compiler/toolchain on the user's machine)
+     from GitHub Releases; install to a PATH dir (`~/.local/bin` or
+     `/usr/local/bin`; on Windows `%LOCALAPPDATA%\Programs\tinto`, added to PATH).
+  3. Create the `~/.tinto/` layout.
+  4. Run `tinto init` → hardware profile → chosen default models.
+  5. Download the profile-selected GGML models (ASR + VAD) into `~/.tinto/models/`
+     so the first run works offline. `--minimal` skips this and fetches lazily.
+  6. Verify (`tinto --version`, `tinto status`) and print the quickstart.
+- **Self-contained:** one binary per platform (linux x86_64/arm64, windows
+  x86_64), no runtime deps beyond the OS audio stack (PulseAudio/PipeWire on
+  Linux, WASAPI on Windows — already present). Optional diarization
+  (sherpa-onnx / ONNX Runtime) is a separate add-on, not in the base install.
+- **Release pipeline:** CI (GitHub Actions) cross-builds per target and publishes
+  binaries + a models manifest to GitHub Releases, pinned/reproducible; the
+  install scripts fetch the latest release. Scripts live in `install/`.
+- **Uninstall:** remove the binary and `~/.tinto` (installer ships `tinto`'s
+  uninstall path or documents the steps).
+
 ## CLI commands & daemon model
 
 The CLI is **daemon-oriented**: `record` starts a background worker and returns

@@ -106,6 +106,26 @@ Platform-agnostic, targeting:
 
 Builds are **compiled for maximum performance** on each target.
 
+## Install
+
+One command, self-contained — downloads the `tinto` binary, sets up `~/.tinto`,
+runs `tinto init`, and fetches the models your machine needs.
+
+**Linux / macOS**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.ps1 | iex
+```
+
+No compiler or toolchain needed on your machine. CLI only for now; the UI comes
+later. (Early stage — release binaries are not published yet.)
+
 ## Interfaces
 
 A **CLI** exposing the full feature set, daemon-oriented so `record` frees your
