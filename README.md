@@ -3,113 +3,45 @@
 > **T**ranscribe **IN**, **T**ext **O**ut — a passive, local meeting recorder
 > and transcriber. (*tinto*: black coffee, Colombian style.)
 
-Capture audio from any device, keep only what actually contains speech, and
-optionally turn it into real-time transcripts. Built as context fuel for AI,
-note-taking, and anything else that benefits from a searchable record of what
-was said.
-
-## What this project is for
-
-A lightweight tool to **store audio or transcribe it**, running locally on your
-own machine. Typical uses:
-
-- Extracting context from meetings/calls to feed into AI workflows.
-- Automatic notes from conversations.
-- Keeping a lean archive of spoken content without hoarding useless noise.
+Capture audio on your own machine, keep only what actually contains speech, and
+optionally turn it into real-time Markdown transcripts. Built as context fuel
+for AI, note-taking, and a searchable record of what was said.
 
 ## How it works
 
 ```
- All inputs + outputs            DSP speech
- (mics, system audio,          classifier:                     Mode
-  loopback, every device)      is someone talking?           dispatch
-        │                            │                           │
-        ▼                            ▼                           ▼
-  ┌───────────┐   raw audio   ┌──────────────┐   speech   ┌──────────────┐
-  │  Capture  │ ────────────▶ │  Gate (DSP)  │ ─────────▶ │   Pipeline   │
-  └───────────┘               └──────────────┘            └──────────────┘
-                                     │ noise / silence
-                                     ▼
-                                  discard
+ default mic + sink monitor     VAD gate:                    mode
+        │                   is someone talking?            dispatch
+        ▼                        ▼                            ▼
+  ┌───────────┐  audio   ┌──────────────┐  speech   ┌──────────────┐
+  │  Capture  │ ───────▶ │  Gate (VAD)  │ ────────▶ │   Pipeline   │
+  └───────────┘          └──────────────┘           └──────────────┘
+                               │ noise / silence → discard
 ```
 
-1. **Capture** — by default, two logical streams: the **default output sink's
-   monitor** (what you hear from everyone) and the **default microphone** (what
-   you say). Additional inputs/outputs are **opt-in**. All sources are resampled
-   to a common 16 kHz mono clock and timestamped so they stay in sync.
-2. **DSP gate** — a digital-signal-processing classifier decides whether the
-   audio contains speech. If **yes**, the segment is kept for processing; if it
-   is **noise or silence**, it is discarded. A storage watcher continuously
-   removes old audio so the archive never grows unbounded.
-3. **Pipeline** — process the kept audio according to the selected mode.
-
-### Capture must be passive (a sniffer, never an owner)
-
-The tool **must not take ownership of audio devices** or alter the machine's
-existing audio routing. It is a passive tap:
-
-- **Inputs** are opened in **shared mode** so other apps keep using the same
-  microphone at the same time. Exclusive mode is forbidden.
-- **Outputs** are captured as a read-only copy of what is already playing —
-  WASAPI loopback on Windows, and the sink **monitor source** on
-  PulseAudio/PipeWire (Linux). Playback is never interrupted or modified.
-- **No virtual audio cables, no re-routing, no new default sinks.** We read the
-  existing streams; we do not reconfigure the user's audio.
+1. **Capture** — passively, two streams by default: the system output (what you
+   hear) and your microphone (what you say). It never takes over your audio
+   devices or interrupts playback.
+2. **Gate** — a voice-activity detector keeps speech and discards silence/noise;
+   old audio is cleaned up automatically.
+3. **Pipeline** — process the kept audio per the selected mode.
 
 ## Modes
 
-Three initial modes:
+| Mode | Keeps audio | Real-time transcript | Deletes audio after |
+| ---- | :---------: | :------------------: | :-----------------: |
+| **1 — Record only**         | ✅ | — | — |
+| **2 — Record + transcribe** | ✅ | ✅ (to a `.md`) | — |
+| **3 — Transcribe only**     | — | ✅ | ✅ |
 
-| Mode | Keeps audio | Real-time transcript | Deletes audio after processing |
-| ---- | :---------: | :------------------: | :----------------------------: |
-| **1 — Record only**            | ✅ | — | — |
-| **2 — Record + transcribe**    | ✅ | ✅ (streamed to a `.md` file) | — |
-| **3 — Transcribe only**        | — | ✅ | ✅ |
-
-## Transcription
-
-- **State-of-the-art, foundational, open-weight models** run **locally** by
-  preference; a **free API** is an acceptable fallback.
-- **Target language: Latin American Spanish (Colombia).** No open-weight model
-  is specialized for this variant yet, so we start from a strong general Spanish
-  model and validate it against our own Colombian audio.
-- **Model is chosen per mode and per machine.** Real-time transcription is
-  compute-bound: on a CPU-only laptop, `large-v3-turbo` runs slower than real
-  time (measured RTF ≈ 1.5), so **live** modes use a smaller model that keeps
-  RTF < 1, while **batch/record** modes use the best-quality model. A GPU lifts
-  this limit. See `examples/RTF-VAD/`.
-
-## Technology (chosen base)
-
-We optimize, but we do not reinvent the wheel. The core is built in **C/C++**
-(Python only as a fallback where C/C++ is impractical), reusing mature
-libraries. Stdlib-only is reserved for hot paths where a dependency would cost
-performance.
-
-| Layer | Base code | Notes |
-| ----- | --------- | ----- |
-| Audio capture | **[miniaudio](https://miniaud.io/)** | Single-header C/C++, cross-platform. WASAPI loopback on Windows; on Linux, open the `.monitor` source as a capture device. |
-| DSP speech gate | **[whisper.cpp](https://github.com/ggml-org/whisper.cpp) + Silero VAD** | VAD ships inside whisper.cpp (`--vad` + a GGML VAD model). No separate VAD project needed. |
-| Transcription | **whisper.cpp** | Local, GGML models; built-in streaming example. |
-| Model | **Whisper large-v3-turbo** | Starting point; Spanish fine-tunes to be evaluated and converted to GGML. |
-
-Glue code we own: device management, the storage watcher, the three-mode
-dispatch, and the CLI/UI over the shared core.
-
-## Platforms
-
-Platform-agnostic, targeting:
-
-- **Windows 11**
-- **Debian-based** Linux
-- **Arch-based** Linux
-
-Builds are **compiled for maximum performance** on each target.
+Transcription runs **locally**, tuned for **Latin American Spanish (Colombia)**.
+The model is chosen per machine (fast model for live, best model for offline).
 
 ## Install
 
 One command, self-contained — downloads the `tinto` binary, sets up `~/.tinto`,
-runs `tinto init`, and fetches the models your machine needs.
+runs `tinto init`, and fetches the models your machine needs. No compiler or
+toolchain required.
 
 **Linux / macOS**
 
@@ -123,34 +55,36 @@ curl -fsSL https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/ma
 irm https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.ps1 | iex
 ```
 
-No compiler or toolchain needed on your machine. CLI only for now; the UI comes
-later. (Early stage — release binaries are not published yet.)
+> Early stage — release binaries are not published yet.
 
-## Interfaces
-
-A **CLI** exposing the full feature set, daemon-oriented so `record` frees your
-terminal:
+## Usage
 
 ```sh
 tinto init      # profile this machine, pick sensible defaults (run once)
-tinto record    # start recording/transcribing in the background, return the terminal
+tinto record    # start recording/transcribing in the background, frees the terminal
 tinto status    # what the background worker is doing
 tinto stop      # finalize outputs and stop
 ```
 
-`record` runs with no flags using the machine profile from `init`; any flag
+`record` works with no flags using the profile from `init`; any flag
 (`--mode`, `--quality`, `--diarize`, …) overrides it. `record -f` stays in the
-foreground (for debugging or systemd).
+foreground. All data lives under `~/.tinto/`.
 
-A **UI** will **reuse the same core** — backend and frontend share one source of
-truth for capture, gating, and transcription.
+**CLI only for now; a UI will come later, reusing the same core.**
+
+## Platforms
+
+Windows 11, Debian-based Linux, Arch-based Linux — one self-contained binary per
+platform.
 
 ## Status
 
-Early stage. The repository currently contains only project scaffolding. The
-sections above describe the **intended** design, not finished functionality.
+Early stage. The design is complete and validated end-to-end (see
+[`plans/`](plans/)); the core is not yet implemented. The `examples/` directory
+holds the hardware-validation probes that back the design.
 
 ## Contributing
 
-Read `AGENTS.md` before making changes — it defines the project's conventions,
-starting with its first and most important rule about language.
+- **[`plans/`](plans/)** — the full implementation plan and design decisions.
+- **[`AGENTS.md`](AGENTS.md)** — conventions, starting with the language rule
+  (everything we build is English; we talk in Spanish).
