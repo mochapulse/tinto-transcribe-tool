@@ -2,22 +2,19 @@
 //
 // Daemon-oriented command surface (see the plan, §9):
 //   tinto init | record | status | stop
-//
-// This is the scaffold: command dispatch, config/precedence wiring, and the
-// ~/.tinto layout are in place; each command's real work is filled in by its
-// feature module (capture, gate, transcriber, profiler, daemon).
 
-#include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <iostream>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "tinto/config.hpp"
 #include "tinto/daemon.hpp"
+#include "tinto/models.hpp"
 #include "tinto/paths.hpp"
+#include "tinto/pipeline.hpp"
 #include "tinto/profile.hpp"
 #include "tinto/version.hpp"
 #include "tinto/whisper_info.hpp"
@@ -39,8 +36,6 @@ int Usage(std::ostream& os) {
      << "  --help    Print this help and exit\n";
   return 0;
 }
-
-// --- command stubs (filled in by feature modules) ---
 
 int CmdInit() {
   tinto::paths::ensure_layout();
@@ -74,20 +69,38 @@ int CmdInit() {
 int CmdRecord(const tinto::Config& cfg) {
   tinto::paths::ensure_layout();
 
-  // Check if already running.
   const auto existing_pid = tinto::ReadPid();
   if (existing_pid > 0 && tinto::IsProcessAlive(existing_pid)) {
     std::cerr << "record: worker already running (PID " << existing_pid << ")\n";
     return 1;
   }
 
+  tinto::Pipeline::ModelPaths model_paths;
+  const bool needs_transcription =
+      (cfg.mode == tinto::Mode::kRecordTranscribe ||
+       cfg.mode == tinto::Mode::kTranscribeOnly);
+
+  if (needs_transcription) {
+    model_paths.asr_model = tinto::FindAsrModel(cfg.quality);
+    model_paths.vad_model = tinto::FindVadModel();
+    if (model_paths.asr_model.empty()) {
+      std::cerr << "record: no ASR model found for quality="
+                << tinto::ToString(cfg.quality)
+                << " in " << tinto::paths::models_dir().string() << "\n";
+      return 1;
+    }
+    if (model_paths.vad_model.empty()) {
+      std::cerr << "record: no VAD model found in "
+                << tinto::paths::models_dir().string() << "\n";
+      return 1;
+    }
+  }
+
   if (!cfg.foreground) {
     const auto log = tinto::paths::logs_dir() / "tinto.log";
     if (!tinto::Daemonize(log)) {
-      // Parent: Daemonize printed the child PID; exit cleanly.
       return 0;
     }
-    // Child continues as daemon.
   }
 
   if (!tinto::WritePidFile()) {
@@ -97,15 +110,14 @@ int CmdRecord(const tinto::Config& cfg) {
 
   auto& stop_flag = tinto::InstallSignalHandlers();
 
-  std::cout << "record: mode=" << tinto::ToString(cfg.mode)
-            << " quality=" << tinto::ToString(cfg.quality)
-            << " lang=" << cfg.lang << "\n"
-            << "record: pipeline placeholder (waiting for feat/record-pipeline)\n";
-
-  // Placeholder loop — will be replaced by the real pipeline.
-  while (!stop_flag.load()) {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+  tinto::Pipeline pipeline(cfg, std::move(model_paths));
+  if (!pipeline.Start()) {
+    tinto::RemovePidFile();
+    return 1;
   }
+
+  pipeline.Run(stop_flag);
+  pipeline.Finish();
 
   std::cout << "record: shutting down\n";
   tinto::RemovePidFile();
@@ -147,8 +159,6 @@ int CmdStop() {
   return 0;
 }
 
-// Minimal flag parsing for the scaffold. Full surface lands with the feature
-// modules; unknown flags are reported, not silently ignored.
 bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
                 std::string& error) {
   for (std::size_t i = 0; i < args.size(); ++i) {
@@ -166,6 +176,26 @@ bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
       if (!next(cfg.out)) return false;
     } else if (a == "--device") {
       if (!next(cfg.device)) return false;
+    } else if (a == "--mode") {
+      std::string val;
+      if (!next(val)) return false;
+      if (val == "record-only" || val == "1") cfg.mode = tinto::Mode::kRecordOnly;
+      else if (val == "record+transcribe" || val == "2") cfg.mode = tinto::Mode::kRecordTranscribe;
+      else if (val == "transcribe-only" || val == "3") cfg.mode = tinto::Mode::kTranscribeOnly;
+      else { error = "unknown mode: " + val; return false; }
+    } else if (a == "--quality") {
+      std::string val;
+      if (!next(val)) return false;
+      if (val == "base") cfg.quality = tinto::Quality::kBase;
+      else if (val == "small") cfg.quality = tinto::Quality::kSmall;
+      else if (val == "medium") cfg.quality = tinto::Quality::kMedium;
+      else if (val == "turbo") cfg.quality = tinto::Quality::kTurbo;
+      else { error = "unknown quality: " + val; return false; }
+    } else if (a == "--threads") {
+      std::string val;
+      if (!next(val)) return false;
+      cfg.threads = std::atoi(val.c_str());
+      if (cfg.threads < 1) { error = "threads must be >= 1"; return false; }
     } else {
       error = "unknown option: " + a;
       return false;
@@ -191,8 +221,6 @@ int main(int argc, char** argv) {
   std::vector<std::string> rest(args.begin() + 1, args.end());
 
   tinto::Config cfg = tinto::DefaultConfig();
-  // Merge machine profile (written by `tinto init`). Profile values fill in
-  // fields that the user did not override with a CLI flag.
   if (auto profile = tinto::ReadProfile(); profile.has_value()) {
     tinto::MergeProfile(cfg, *profile);
   }

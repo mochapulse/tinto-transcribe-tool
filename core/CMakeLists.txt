@@ -5,6 +5,8 @@ add_library(tinto_core STATIC
   src/profile.cpp
   src/storage.cpp
   src/daemon.cpp
+  src/models.cpp
+  src/pipeline.cpp
 )
 
 # Generate version.hpp from the repo-root VERSION file (single source of truth).
