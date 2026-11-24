@@ -8,12 +8,14 @@
 // feature module (capture, gate, transcriber, profiler, daemon).
 
 #include <cstring>
+#include <exception>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "tinto/config.hpp"
 #include "tinto/paths.hpp"
+#include "tinto/profile.hpp"
 #include "tinto/version.hpp"
 
 namespace {
@@ -38,8 +40,30 @@ int Usage(std::ostream& os) {
 
 int CmdInit() {
   tinto::paths::ensure_layout();
-  std::cout << "init: ~/.tinto layout ready at " << tinto::paths::home() << "\n"
-            << "init: hardware profiling not implemented yet (feat/init-profile)\n";
+  const tinto::Profile p = tinto::DetectAndDecide();
+  try {
+    tinto::WriteProfile(p);
+  } catch (const std::exception& e) {
+    std::cerr << "init: " << e.what() << "\n";
+    return 1;
+  }
+
+  std::cout << "=== Hardware profile written to " << tinto::paths::profile().string()
+            << " ===\n"
+            << "  CPU         : " << (p.cpu.empty() ? "unknown" : p.cpu) << " ("
+            << p.cores_physical << "c / " << p.threads_logical
+            << "t, AVX2=" << (p.avx2 ? "true" : "false") << ")\n"
+            << "  RAM         : " << p.ram_gb << " GB\n"
+            << "  GPU / accel : " << (p.gpu.empty() ? "none" : p.gpu) << " -> "
+            << p.accel << "\n"
+            << "  OS          : " << p.os << " / " << p.distro << "\n"
+            << "--- chosen defaults ---\n"
+            << "  live  : model=" << p.quality_live << " threads=" << p.threads_live
+            << "\n"
+            << "  batch : model=" << p.quality_batch << " threads=" << p.threads_batch
+            << "\n"
+            << "  window=" << p.window_sec << "s  lang=" << p.lang
+            << "  backend=" << p.backend << "\n";
   return 0;
 }
 
