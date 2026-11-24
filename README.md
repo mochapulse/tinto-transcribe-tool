@@ -43,19 +43,18 @@ One command, self-contained — downloads the `tinto` binary, sets up `~/.tinto`
 runs `tinto init`, and fetches the models your machine needs. No compiler or
 toolchain required.
 
-**Linux / macOS**
+**Linux (x86_64)**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.sh | bash
 ```
 
-**Windows (PowerShell)**
+The installer detects your package manager (pacman, apt, dnf, zypper), installs
+audio dependencies if missing, downloads the binary, runs `tinto init`, and
+fetches the right models for your hardware. Use `--minimal` to skip model
+download, `--system` to install to `/usr/local/bin`.
 
-```powershell
-irm https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.ps1 | iex
-```
-
-> Early stage — release binaries are not published yet.
+**Windows (PowerShell)** — not yet available.
 
 ## Usage
 
@@ -79,9 +78,10 @@ platform.
 
 ## Status
 
-Early stage. The design is complete and validated end-to-end (see
-[`plans/`](plans/)); the core is not yet implemented. The `examples/` directory
-holds the hardware-validation probes that back the design.
+The core recording pipeline is working end-to-end: capture → VAD → transcribe →
+output. `tinto record` runs as a daemon, `tinto status`/`stop` control it.
+See [`plans/`](plans/) for the full design and [`AGENTS.md`](AGENTS.md) for
+conventions. The `examples/` directory holds hardware-validation probes.
 
 ## Contributing
 
