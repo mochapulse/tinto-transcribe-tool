@@ -23,3 +23,10 @@ set_source_files_properties(src/capture_miniaudio.cpp PROPERTIES COMPILE_OPTIONS
 
 # miniaudio uses pthreads, libm and dlopen on Linux (PulseAudio/PipeWire backend).
 target_link_libraries(tinto_core PUBLIC pthread m dl)
+
+# whisper.cpp dependency (ASR + Silero VAD), wired via FetchContent at the top.
+if(TINTO_WITH_WHISPER)
+  target_sources(tinto_core PRIVATE src/whisper_info.cpp)
+  target_link_libraries(tinto_core PUBLIC whisper)
+  target_compile_definitions(tinto_core PUBLIC TINTO_WITH_WHISPER=1)
+endif()

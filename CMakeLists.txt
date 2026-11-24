@@ -17,5 +17,19 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# whisper.cpp provides both the ASR transcription and the built-in Silero VAD.
+# Pinned to the exact commit validated in examples/RTF-VAD for reproducibility.
+option(TINTO_WITH_WHISPER "Build with whisper.cpp (ASR + VAD)" ON)
+if(TINTO_WITH_WHISPER)
+  include(FetchContent)
+  set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(whisper
+    GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git
+    GIT_TAG c1a24047871444999b79f5e8612828f45881ae12)
+  FetchContent_MakeAvailable(whisper)
+endif()
+
 add_subdirectory(core)
 add_subdirectory(cli)
