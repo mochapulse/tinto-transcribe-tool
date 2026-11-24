@@ -7,13 +7,16 @@
 // ~/.tinto layout are in place; each command's real work is filled in by its
 // feature module (capture, gate, transcriber, profiler, daemon).
 
+#include <chrono>
 #include <cstring>
 #include <exception>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "tinto/config.hpp"
+#include "tinto/daemon.hpp"
 #include "tinto/paths.hpp"
 #include "tinto/profile.hpp"
 #include "tinto/version.hpp"
@@ -70,28 +73,78 @@ int CmdInit() {
 
 int CmdRecord(const tinto::Config& cfg) {
   tinto::paths::ensure_layout();
+
+  // Check if already running.
+  const auto existing_pid = tinto::ReadPid();
+  if (existing_pid > 0 && tinto::IsProcessAlive(existing_pid)) {
+    std::cerr << "record: worker already running (PID " << existing_pid << ")\n";
+    return 1;
+  }
+
+  if (!cfg.foreground) {
+    const auto log = tinto::paths::logs_dir() / "tinto.log";
+    if (!tinto::Daemonize(log)) {
+      // Parent: Daemonize printed the child PID; exit cleanly.
+      return 0;
+    }
+    // Child continues as daemon.
+  }
+
+  if (!tinto::WritePidFile()) {
+    std::cerr << "record: failed to write PID file\n";
+    return 1;
+  }
+
+  auto& stop_flag = tinto::InstallSignalHandlers();
+
   std::cout << "record: mode=" << tinto::ToString(cfg.mode)
             << " quality=" << tinto::ToString(cfg.quality)
             << " lang=" << cfg.lang << "\n"
-            << "record: pipeline not implemented yet "
-               "(feat/capture, feat/gate, feat/transcribe, feat/daemon)\n";
+            << "record: pipeline placeholder (waiting for feat/record-pipeline)\n";
+
+  // Placeholder loop — will be replaced by the real pipeline.
+  while (!stop_flag.load()) {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+
+  std::cout << "record: shutting down\n";
+  tinto::RemovePidFile();
   return 0;
 }
 
 int CmdStatus() {
+  const auto pid = tinto::ReadPid();
   const bool whisper = !tinto::WhisperBuildInfo().empty();
-  std::cout << "status: no worker running (control plane not implemented yet, "
-               "feat/daemon)\n"
+
+  if (pid <= 0 || !tinto::IsProcessAlive(pid)) {
+    std::cout << "status: no worker running\n"
+              << "  transcription backend: "
+              << (whisper ? "whisper (available)" : "none (built without whisper)")
+              << "\n";
+    return 1;
+  }
+
+  std::cout << "status: worker running (PID " << pid << ")\n"
             << "  transcription backend: "
             << (whisper ? "whisper (available)" : "none (built without whisper)")
             << "\n";
-  return 1;  // non-zero when nothing is running (plan, §9)
+  return 0;
 }
 
 int CmdStop() {
-  std::cout << "stop: nothing to stop (control plane not implemented yet, "
-               "feat/daemon)\n";
-  return 1;
+  const auto pid = tinto::ReadPid();
+  if (pid <= 0 || !tinto::IsProcessAlive(pid)) {
+    std::cout << "stop: no worker running\n";
+    return 1;
+  }
+
+  if (!tinto::SendStop(pid)) {
+    std::cerr << "stop: failed to send stop signal to PID " << pid << "\n";
+    return 1;
+  }
+
+  std::cout << "stop: sent shutdown signal to PID " << pid << "\n";
+  return 0;
 }
 
 // Minimal flag parsing for the scaffold. Full surface lands with the feature
