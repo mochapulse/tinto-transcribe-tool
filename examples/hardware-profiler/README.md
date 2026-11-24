@@ -2,7 +2,7 @@
 
 Explores the machine, decides per-machine defaults, and writes a profile so
 casual users never have to pass flags. This is the prototype of what the real
-CLI runs once at global install (`mochameet init`).
+CLI runs once at global install (`tinto init`).
 
 Runtime precedence: **CLI flag > machine profile > built-in default**.
 
@@ -10,8 +10,8 @@ Runtime precedence: **CLI flag > machine profile > built-in default**.
 
 ```sh
 ./arch-09-profile.sh
-# writes $MOCHAMEET_PROFILE (default ~/.config/mochameet/profile.json)
-MOCHAMEET_PROFILE=/tmp/profile.json ./arch-09-profile.sh   # custom path
+# writes $TINTO_PROFILE (default ~/.config/tinto/profile.json)
+TINTO_PROFILE=/tmp/profile.json ./arch-09-profile.sh   # custom path
 ```
 
 ## What it does

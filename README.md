@@ -1,4 +1,7 @@
-# MochaMeetRecorderTranscriber
+# tinto
+
+> **T**ranscribe **IN**, **T**ext **O**ut — a passive, local meeting recorder
+> and transcriber. (*tinto*: black coffee, Colombian style.)
 
 Capture audio from any device, keep only what actually contains speech, and
 optionally turn it into real-time transcripts. Built as context fuel for AI,
@@ -109,10 +112,10 @@ A **CLI** exposing the full feature set, daemon-oriented so `record` frees your
 terminal:
 
 ```sh
-mochameet init      # profile this machine, pick sensible defaults (run once)
-mochameet record    # start recording/transcribing in the background, return the terminal
-mochameet status    # what the background worker is doing
-mochameet stop      # finalize outputs and stop
+tinto init      # profile this machine, pick sensible defaults (run once)
+tinto record    # start recording/transcribing in the background, return the terminal
+tinto status    # what the background worker is doing
+tinto stop      # finalize outputs and stop
 ```
 
 `record` runs with no flags using the machine profile from `init`; any flag

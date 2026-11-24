@@ -18,7 +18,7 @@ Spanish.**
 
 ## Project intent (context for your changes)
 
-MochaMeetRecorderTranscriber captures audio from every input and output device,
+tinto captures audio from every input and output device,
 uses a DSP classifier to keep only segments that contain speech (discarding
 noise and silence), and optionally transcribes them in real time. The goal is a
 lightweight local tool to store or transcribe spoken audio — useful for AI
@@ -103,7 +103,7 @@ the terminal immediately; the other commands control it.
   finalize the `.md`/audio outputs, clean up, remove the PID/socket. Never a hard
   kill unless `--force`.
 - **Control plane:** a per-instance **PID file + control socket** in the XDG
-  runtime/state dir (`$XDG_RUNTIME_DIR`/`~/.local/state/mochameet`). Unix domain
+  runtime/state dir (`$XDG_RUNTIME_DIR`/`~/.local/state/tinto`). Unix domain
   socket on Linux/macOS, named pipe on Windows — behind one abstraction, per the
   platform-agnostic rule. `status`/`stop` talk to the worker over it.
 - **One active worker** per instance; a second `record` while one runs fails with
@@ -173,7 +173,7 @@ the terminal immediately; the other commands control it.
 ## Zero-flag defaults: install-time hardware profile
 
 - **`init` runs at global install and profiles the machine**, then writes a
-  machine profile (`$MOCHAMEET_PROFILE`, default `~/.config/mochameet/profile.json`,
+  machine profile (`$TINTO_PROFILE`, default `~/.config/tinto/profile.json`,
   XDG). The goal: a casual user runs the CLI with **no flags** and gets sensible
   behavior for their hardware.
 - **Runtime precedence: CLI flag > machine profile > built-in default.** Flags

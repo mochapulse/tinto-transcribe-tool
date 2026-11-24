@@ -11,11 +11,11 @@
 # benchmark (see examples/RTF-VAD) and overwrite the model picks with measured
 # numbers — more robust than guessing from core count.
 #
-# Output: JSON at $MOCHAMEET_PROFILE (default ~/.config/mochameet/profile.json).
+# Output: JSON at $TINTO_PROFILE (default ~/.config/tinto/profile.json).
 #
 set -euo pipefail
 
-PROFILE="${MOCHAMEET_PROFILE:-$HOME/.config/mochameet/profile.json}"
+PROFILE="${TINTO_PROFILE:-$HOME/.config/tinto/profile.json}"
 
 # ---------- explore hardware ----------
 os="$(uname -s)"
