@@ -225,3 +225,6 @@ __marimo__/
 # Coding Agent
 .atl/
 lancedb/
+
+# Agent worktree storage (harness)
+.claude/
