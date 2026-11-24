@@ -102,10 +102,10 @@ the terminal immediately; the other commands control it.
 - **`stop`** — signal the worker to shut down **gracefully**: flush the buffer,
   finalize the `.md`/audio outputs, clean up, remove the PID/socket. Never a hard
   kill unless `--force`.
-- **Control plane:** a per-instance **PID file + control socket** in the XDG
-  runtime/state dir (`$XDG_RUNTIME_DIR`/`~/.local/state/tinto`). Unix domain
-  socket on Linux/macOS, named pipe on Windows — behind one abstraction, per the
-  platform-agnostic rule. `status`/`stop` talk to the worker over it.
+- **Control plane:** a per-instance **PID file + control socket** under
+  `~/.tinto/state/` (see the data layout). Unix domain socket on Linux/macOS,
+  named pipe on Windows — behind one abstraction, per the platform-agnostic
+  rule. `status`/`stop` talk to the worker over it.
 - **One active worker** per instance; a second `record` while one runs fails with
   a clear message (named/multiple sessions are later work). The PID file guards
   against double-start and is cleaned on exit.
@@ -151,6 +151,15 @@ the terminal immediately; the other commands control it.
   `--threads`/`--cpu-budget`, `--storage {ram|disk}`, `--format {wav|opus}`,
   `--retention`, `--window-sec`, `--lang`, `--out`, `--diarize`,
   `--word-timestamps`, `--backend {local|groq}`.
+- **All tinto data lives under a single `~/.tinto/`** (override with `$TINTO_HOME`),
+  not scattered across XDG dirs. Layout:
+  - `~/.tinto/profile.json` — machine profile from `init`.
+  - `~/.tinto/config.toml` — user config (optional; flags override it).
+  - `~/.tinto/models/` — downloaded GGML model cache (ASR + VAD).
+  - `~/.tinto/state/` — per-instance PID file + control socket.
+  - `~/.tinto/logs/` — background worker logs.
+  - `~/.tinto/recordings/`, `~/.tinto/transcripts/` — default output for persisted
+    audio and `.md` transcripts (a `--out` path overrides).
 - **No database for audio.** Audio is a large binary blob; databases handle those
   badly. Audio lives in **files**; the working buffer lives in a **bounded RAM
   ring buffer** (that is processing, not storage).
@@ -172,10 +181,10 @@ the terminal immediately; the other commands control it.
 
 ## Zero-flag defaults: install-time hardware profile
 
-- **`init` runs at global install and profiles the machine**, then writes a
-  machine profile (`$TINTO_PROFILE`, default `~/.config/tinto/profile.json`,
-  XDG). The goal: a casual user runs the CLI with **no flags** and gets sensible
-  behavior for their hardware.
+- **`init` runs at global install and profiles the machine**, then writes the
+  machine profile to `~/.tinto/profile.json` (see the data layout). The goal: a
+  casual user runs the CLI with **no flags** and gets sensible behavior for their
+  hardware.
 - **Runtime precedence: CLI flag > machine profile > built-in default.** Flags
   always win; the profile just moves the defaults closer to the machine.
 - **What it detects:** OS/distro, CPU model, physical cores vs logical threads,

@@ -11,11 +11,12 @@
 # benchmark (see examples/RTF-VAD) and overwrite the model picks with measured
 # numbers — more robust than guessing from core count.
 #
-# Output: JSON at $TINTO_PROFILE (default ~/.config/tinto/profile.json).
+# Output: JSON at $TINTO_HOME/profile.json (default ~/.tinto/profile.json).
 #
 set -euo pipefail
 
-PROFILE="${TINTO_PROFILE:-$HOME/.config/tinto/profile.json}"
+TINTO_HOME="${TINTO_HOME:-$HOME/.tinto}"
+PROFILE="${TINTO_PROFILE:-$TINTO_HOME/profile.json}"
 
 # ---------- explore hardware ----------
 os="$(uname -s)"
