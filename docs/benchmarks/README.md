@@ -2,6 +2,8 @@
 
 Use these reports to choose the next experiment, not to infer live throughput or accuracy across all recordings. The tests processed files on native Windows 11 and did not exercise the microphone or WASAPI loopback. For shipping behavior and commands, start with the [platform handoff](../platform-handoff.md).
 
+To run another test, start with the [audio and reference downloads](audio-sources.md). The page also links to the exact clip and case selections.
+
 | Report | What it establishes |
 | --- | --- |
 | [Colombian conversation baseline](colombian-dialogue-baseline.md) | All four published Whisper presets were compared on matched spontaneous excerpts. Full-length ASR was stopped before completion. The separate full-length diarization runs show severe over-clustering with automatic speaker counts. |
