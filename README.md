@@ -150,5 +150,6 @@ conventions. The `examples/` directory holds hardware-validation probes.
 ## Contributing
 
 - **[`plans/`](plans/)** — the full implementation plan and design decisions.
+- **[Platform handoff](docs/platform-handoff.md)** — verified Windows state, CPU-only Arch setup, and links to the archived benchmarks.
 - **[`AGENTS.md`](AGENTS.md)** — conventions, starting with the language rule
   (everything we build is English; we talk in Spanish).

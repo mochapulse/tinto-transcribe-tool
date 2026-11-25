@@ -26,6 +26,9 @@ keeps only speech (VAD gate), and optionally transcribes to Markdown. Pipeline:
 latest implementation plan there before changing architecture, and update it
 when a decision changes.
 
+For the recorded Windows state, CPU-only Arch setup, and experiment results,
+start with the [platform handoff](docs/platform-handoff.md).
+
 ## Key invariants (do not break; see the plan for rationale)
 
 - **Capture is a passive sniffer, never an owner.** Shared-mode inputs (never
