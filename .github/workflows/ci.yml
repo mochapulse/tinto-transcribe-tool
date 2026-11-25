@@ -1,0 +1,152 @@
+name: CI and release
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'release/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-22.04
+          - platform: windows
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify version and tag
+        shell: bash
+        run: |
+          version=$(tr -d '\r\n' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+      - name: Configure Linux
+        if: matrix.platform == 'linux'
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF
+          -DTINTO_WITH_WHISPER=ON -DTINTO_WITH_DIARIZATION=ON
+      - name: Configure Windows
+        if: matrix.platform == 'windows'
+        run: >
+          cmake -S . -B build -A x64
+          -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF
+          -DTINTO_WITH_WHISPER=ON -DTINTO_WITH_DIARIZATION=ON
+      - run: cmake --build build --config Release --parallel 2
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - run: cmake --install build --config Release --prefix stage
+      - name: Package and smoke test Linux
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '\r\n' < VERSION)
+          test "$(stage/tinto -v)" = "$version"
+          TINTO_HOME="$RUNNER_TEMP/tinto-package" stage/tinto init -n
+          bash -n install/install.sh
+          mkdir dist
+          name="tinto-v$version-linux-x86_64.tar.gz"
+          tar -czf "dist/$name" -C stage .
+          (cd dist && sha256sum "$name" > "$name.sha256")
+      - name: Package and smoke test Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ((& .\stage\tinto.exe -v) -ne $version) { throw 'Unexpected packaged binary version' }
+          $env:TINTO_HOME = Join-Path $env:RUNNER_TEMP 'tinto-package'
+          & .\stage\tinto.exe init -n
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged executable failed to initialize' }
+          [void][ScriptBlock]::Create((Get-Content .\install\install.ps1 -Raw))
+          New-Item -ItemType Directory dist | Out-Null
+          $name = "tinto-v$version-windows-x86_64.zip"
+          Compress-Archive -Path .\stage\* -DestinationPath "dist\$name"
+          $hash = (Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content "dist\$name.sha256" "$hash  $name" -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.platform }}
+          path: dist/
+          if-no-files-found: error
+
+  linux-install:
+    name: Install package (${{ matrix.image }})
+    needs: build
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['debian:12-slim', 'archlinux:base']
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-linux
+          path: package
+      - name: Verify the distro installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v pacman >/dev/null; then
+            pacman -Syu --noconfirm
+          fi
+          export TINTO_HOME="$RUNNER_TEMP/tinto-data"
+          bash install/install.sh -n -p package/*.tar.gz
+          test "$("$HOME/.local/bin/tinto" -v)" = "$(tr -d '\r\n' < VERSION)"
+          test -f "$TINTO_HOME/profile.json"
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, linux-install]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+      - name: Publish both verified packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_REF_NAME^{commit}" origin/main
+          cd dist
+          sha256sum -c ./*.sha256
+          test -f "tinto-$GITHUB_REF_NAME-linux-x86_64.tar.gz"
+          test -f "tinto-$GITHUB_REF_NAME-windows-x86_64.zip"
+          if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$draft" == false ]]; then exit 0; fi
+            gh release upload "$GITHUB_REF_NAME" ./* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" ./* --verify-tag --draft --generate-notes \
+              --title "tinto $GITHUB_REF_NAME"
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
