@@ -4,7 +4,7 @@
 - **Descriptor:** Full implementation plan and design decisions for the tinto CLI
   (passive meeting recorder & transcriber). CLI first; UI later.
 - **Status:** Shared recording pipeline with foreground and background CLI
-  control on Linux and Windows 11. Windows release packaging is pending.
+  control on Linux and Windows 11. Version 0.1 packages both platforms.
 
 This is the authoritative design record. `README.md` (users) and `AGENTS.md`
 (contributor conventions) are intentionally short and point here for detail.
@@ -213,23 +213,22 @@ Daemon-oriented: `record` starts a background worker and returns the terminal.
 
 ## 10. Deployment & install
 
-One-line, self-contained, **CLI only for now** (UI later).
+The x64 Linux and Windows 11 installers are one-line entry points under
+`install/`. Linux detects Debian or Arch families from `/etc/os-release`.
+Windows checks the desktop build and x64 architecture. Each installs missing
+runtime packages, verifies the SHA-256 of the release archive, and installs
+the executable and its runtime libraries on the user’s PATH.
 
-- Linux/macOS: `curl -fsSL .../install/install.sh | sh`
-- Windows (PowerShell): `irm .../install/install.ps1 | iex`
+`tinto init` owns model provisioning on every platform. It verifies or fetches
+all enabled Whisper, Silero, and diarization models using pinned file hashes.
+`-n` skips that step when preparing an offline installation. `health` reports
+setup and audio availability. `doctor` additionally verifies model checksums.
 
-Installer: detect OS+arch → download prebuilt **self-contained** binary
-(whisper.cpp + miniaudio statically linked, no toolchain) from GitHub Releases →
-install to PATH → create `~/.tinto/` → run `tinto init` → download
-profile-selected models (ASR+VAD) so first run works offline (`--minimal` skips)
-→ verify + print quickstart.
-
-- **Self-contained:** one binary per platform (linux x86_64/arm64, windows
-  x86_64); no runtime deps beyond the OS audio stack (PulseAudio/PipeWire,
-  WASAPI). Diarization (sherpa-onnx/ONNX Runtime) is a separate add-on.
-- **Release pipeline:** GitHub Actions cross-builds + publishes binaries and a
-  models manifest to GitHub Releases (pinned/reproducible). Scripts in `install/`.
-- **Uninstall:** remove the binary and `~/.tinto`.
+GitHub Actions builds and tests Windows and Linux on changes to `main` and
+pull requests. The Linux package is also tested on Debian and Arch. A matching
+version tag on `main` publishes the two verified archives and their checksums.
+The Windows archive includes the ONNX Runtime and Sherpa DLLs. The Linux
+archive keeps its shared libraries beside the application bundle.
 
 ## 11. Platforms
 

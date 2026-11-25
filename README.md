@@ -39,44 +39,51 @@ The model is chosen per machine (fast model for live, best model for offline).
 
 ## Install
 
-One command, self-contained — downloads the `tinto` binary, sets up `~/.tinto`,
-runs `tinto init`, and fetches the models your machine needs. No compiler or
-toolchain required.
+The installers detect the platform, install missing system prerequisites, verify
+the GitHub Release archive, and run `tinto init`. No compiler is needed.
 
-**Linux (x86_64)**
+**Debian-based or Arch-based Linux (x86_64)**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.sh | bash
 ```
 
-The installer detects your package manager (pacman, apt, dnf, zypper), installs
-audio dependencies if missing, downloads the binary, runs `tinto init`, and
-fetches the right models for your hardware. Use `--minimal` to skip model
-download, `--system` to install to `/usr/local/bin`.
-
-**Windows 11 (build from source)** — there is no installer yet. From an x64
-Visual Studio developer shell with CMake,
-Ninja, and Git on `PATH`, run:
+**Windows 11 (x64 PowerShell)**
 
 ```powershell
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
-.\build\cli\tinto.exe init
-.\build\cli\tinto.exe record --mode 1
-.\build\cli\tinto.exe status
-.\build\cli\tinto.exe stop
+irm https://raw.githubusercontent.com/mochapulse/tinto-transcribe-tool/main/install/install.ps1 | iex
 ```
 
-For local transcription, put an ASR model and the Silero VAD model in
-`~/.tinto/models`, then choose the matching quality. For example, with
-`ggml-base-q5_1.bin` and `ggml-silero-v5.1.2.bin` installed, run
-`.\build\cli\tinto.exe record --mode 3 --quality base`.
+Initial setup downloads about 1.4 GB for the four Whisper qualities, Silero VAD,
+and both speaker-labeling models. Existing files are verified before reuse.
+Use `tinto health` for a quick setup check and `tinto doctor` for details.
+Use the installer’s `-n` option or `tinto init -n` to skip model downloads.
+
+<details>
+<summary>Build from source</summary>
+
+From a developer shell with CMake, a C++ compiler, Ninja, and Git:
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DTINTO_WITH_DIARIZATION=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+cmake --install build --prefix stage
+```
+
+The staged directory contains the executable and any required runtime libraries.
+Run its `tinto init` to prepare the local profile and models. Omit the
+diarization option for a build without speaker labeling.
+
+</details>
 
 ## Usage
 
 ```sh
-tinto init      # profile this machine, pick sensible defaults (run once)
+tinto init      # write the profile and download all models
+tinto health    # check the setup
+tinto doctor    # verify checksums and show diagnostics
+tinto help record
 tinto record    # start recording/transcribing in the background, frees the terminal
 tinto status    # what the background worker is doing
 tinto stop      # finalize outputs and stop
@@ -107,14 +114,9 @@ can still record. To override the defaults:
 
 ## Speaker labels after recording
 
-On x64 Windows or Linux, enable the optional local speaker engine at configure
-time with `-DTINTO_WITH_DIARIZATION=ON`. On Windows, keep the generated Sherpa
-and ONNX Runtime DLLs next to `tinto.exe`.
-
-Put the [Pyannote 3.0 int8 segmentation model](https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2)
-at `~/.tinto/models/diarization/segmentation.int8.onnx` (the archive's
-`model.int8.onnx`). Put [TitaNet Small](https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx)
-next to it as `embedding.onnx`.
+The release builds include the optional local speaker engine. For source builds,
+enable `-DTINTO_WITH_DIARIZATION=ON`. `tinto init` installs both speaker
+models whenever the engine is enabled.
 
 ```sh
 tinto record --mode 2 --diarize
