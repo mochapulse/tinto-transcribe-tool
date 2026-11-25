@@ -1,0 +1,63 @@
+file(REMOVE_RECURSE "${TEST_HOME}")
+set(ENV{TINTO_HOME} "${TEST_HOME}")
+
+function(expect_command exit_code expected)
+  execute_process(COMMAND "${TINTO_EXE}" ${ARGN}
+    RESULT_VARIABLE result OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr
+    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE
+    TIMEOUT 15)
+  string(CONCAT output "${stdout}" "${stderr}")
+  if(NOT "${result}" STREQUAL "${exit_code}" OR NOT output MATCHES "${expected}")
+    message(FATAL_ERROR "tinto ${ARGN} returned ${result}: ${output}")
+  endif()
+endfunction()
+
+expect_command(0 "${TINTO_VERSION}" --version)
+expect_command(0 "Hardware profile written" init)
+expect_command(2 "unknown source" record --source invalid)
+expect_command(2 "cannot be used with --source system" record --source system --device mic)
+expect_command(0 "Usage: tinto diarize" diarize --help)
+expect_command(2 "--diarize requires --mode 2" record --mode 3 --diarize)
+if(TINTO_WITH_DIARIZATION)
+  expect_command(1 "no eligible session" diarize)
+  expect_command(2 "--speakers requires a positive integer" diarize --speakers 0)
+else()
+  expect_command(1 "no speaker diarization support" diarize)
+endif()
+
+foreach(dir models state logs recordings transcripts)
+  if(NOT IS_DIRECTORY "${TEST_HOME}/${dir}")
+    message(FATAL_ERROR "Missing runtime directory: ${dir}")
+  endif()
+endforeach()
+
+file(READ "${TEST_HOME}/profile.json" profile)
+if(NOT profile MATCHES "\"cores_physical\":[ \t]*[1-9][0-9]*" OR
+   NOT profile MATCHES "\"threads_logical\":[ \t]*[1-9][0-9]*" OR
+   NOT profile MATCHES "\"backend\":[ \t]*\"local\"")
+  message(FATAL_ERROR "Invalid machine profile: ${profile}")
+endif()
+
+if(WIN32)
+  if(NOT profile MATCHES "\"os\":[ \t]*\"Windows\"" OR
+     NOT profile MATCHES "\"ram_gb\":[ \t]*[1-9][0-9]*" OR
+     NOT profile MATCHES "\"generated\":[ \t]*\"[0-9T:-]+Z\"")
+    message(FATAL_ERROR "Windows hardware data was not detected: ${profile}")
+  endif()
+  expect_command(1 "worker exited during startup" record --mode 1
+    --device "tinto-smoke-test-device-that-does-not-exist")
+  if(EXISTS "${TEST_HOME}/state/tinto.pid")
+    message(FATAL_ERROR "Failed background startup left a PID file")
+  endif()
+  file(GLOB failed_recordings "${TEST_HOME}/recordings/*.wav")
+  if(failed_recordings)
+    message(FATAL_ERROR "Failed background startup created an audio file")
+  endif()
+endif()
+
+if(TINTO_WITH_WHISPER)
+  expect_command(1 "whisper \\(available\\)" status)
+else()
+  expect_command(1 "built without whisper" status)
+endif()
+expect_command(1 "no worker running" stop)

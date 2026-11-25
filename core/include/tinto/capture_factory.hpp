@@ -6,7 +6,7 @@
 
 namespace tinto {
 
-// Creates the platform capture implementation (miniaudio backend on Linux).
+// Creates the shared miniaudio capture implementation.
 std::unique_ptr<ICapture> MakeCapture();
 
 }  // namespace tinto

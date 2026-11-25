@@ -1,6 +1,7 @@
 #include "tinto/transcriber_factory.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -15,6 +16,18 @@ namespace {
 
 // whisper.cpp reports segment timestamps in centiseconds (10 ms units).
 constexpr double kWhisperTickSeconds = 0.01;
+
+struct Cancellation {
+  const CancelTranscription& requested;
+  std::atomic<bool> interrupted{false};
+
+  static bool Check(void* data) {
+    auto& self = *static_cast<Cancellation*>(data);
+    if (!self.requested || !self.requested()) return false;
+    self.interrupted.store(true, std::memory_order_relaxed);
+    return true;
+  }
+};
 
 class WhisperTranscriber final : public ITranscriber {
  public:
@@ -34,12 +47,18 @@ class WhisperTranscriber final : public ITranscriber {
   WhisperTranscriber& operator=(const WhisperTranscriber&) = delete;
 
   Transcript Transcribe(const float* samples, std::size_t count,
-                        std::uint32_t sample_rate) override {
+                        std::uint32_t sample_rate,
+                        const CancelTranscription& should_cancel) override {
     // Input is assumed to be mono at 16 kHz; no resampling happens here.
     (void)sample_rate;
 
     Transcript result;
     if (ctx_ == nullptr || samples == nullptr || count == 0) {
+      return result;
+    }
+    Cancellation cancellation{should_cancel};
+    if (Cancellation::Check(&cancellation)) {
+      result.interrupted = true;
       return result;
     }
 
@@ -49,11 +68,18 @@ class WhisperTranscriber final : public ITranscriber {
     params.n_threads = threads_;
     params.print_progress = false;
     params.print_realtime = false;
+    params.encoder_begin_callback = [](whisper_context*, whisper_state*, void* data) {
+      return !Cancellation::Check(data);
+    };
+    params.encoder_begin_callback_user_data = &cancellation;
+    params.abort_callback = &Cancellation::Check;
+    params.abort_callback_user_data = &cancellation;
 
-    if (whisper_full(ctx_, params, samples, static_cast<int>(count)) != 0) {
-      return result;
-    }
+    const int status = whisper_full(ctx_, params, samples, static_cast<int>(count));
+    result.interrupted = cancellation.interrupted.load(std::memory_order_relaxed);
+    if (status != 0 && !result.interrupted) return result;
 
+    // On cancellation Whisper can still have complete segments from this call.
     const int n_segments = whisper_full_n_segments(ctx_);
     for (int i = 0; i < n_segments; ++i) {
       const char* segment_text = whisper_full_get_segment_text(ctx_, i);

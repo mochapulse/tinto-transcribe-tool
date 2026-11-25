@@ -1,37 +1,43 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
-#include <string>
+#include <memory>
 
 namespace tinto {
 
-// Daemonize the current process (fork + setsid + redirect stdio to log).
-// Returns true in the child (now a daemon), false in the parent.
-// On failure, prints to stderr and returns false.
-// `log_path` receives stdout+stderr of the daemon.
-bool Daemonize(const std::filesystem::path& log_path);
+enum class DaemonizeResult { kChild, kParent, kError };
 
-// Write PID to ~/.tinto/state/tinto.pid. Returns true on success.
-bool WritePidFile();
+// Detach the worker from the terminal. On failure print an error and return kError.
+// `log_path` receives stdout+stderr of the daemon.
+DaemonizeResult Daemonize(const std::filesystem::path& log_path);
+
+// Own the state for one recording process. Destruction unpublishes the worker
+// and releases the instance lock, including on startup failure.
+class WorkerControl {
+ public:
+  WorkerControl();
+  ~WorkerControl();
+  WorkerControl(const WorkerControl&) = delete;
+  WorkerControl& operator=(const WorkerControl&) = delete;
+
+  bool Acquire();
+  bool Publish();
+  bool StopRequested() const;
+  bool CancelRequested() const;
+
+ private:
+  struct State;
+  std::unique_ptr<State> state_;
+};
 
 // Read the PID from the PID file. Returns 0 if missing or malformed.
 std::int32_t ReadPid();
 
-// Remove the PID file. Idempotent.
-void RemovePidFile();
-
-// Check if a process with the given PID is alive.
+// Check if the published worker with this PID is active.
 bool IsProcessAlive(std::int32_t pid);
 
-// Send SIGTERM to the given PID. Returns true if the signal was sent.
+// Request graceful shutdown. Prints an error and returns false on failure.
 bool SendStop(std::int32_t pid);
-
-// Install signal handlers (SIGTERM, SIGINT) that set a stop flag.
-// Returns a reference to the atomic flag; when it becomes true, the
-// caller should shut down gracefully.
-std::atomic<bool>& InstallSignalHandlers();
 
 }  // namespace tinto

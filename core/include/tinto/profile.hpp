@@ -30,7 +30,7 @@ struct Profile {
   std::string backend = "local";
 };
 
-// Explores the hardware (Linux) and decides the default parameters.
+// Detects hardware on the current platform and decides the default parameters.
 Profile DetectAndDecide();
 
 // Writes the profile to paths::profile(), creating the ~/.tinto layout first.

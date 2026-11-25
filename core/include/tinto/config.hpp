@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "tinto/capture.hpp"
 #include "tinto/profile.hpp"
 
 // Runtime configuration. Precedence (resolved by the CLI):
@@ -24,7 +25,8 @@ struct Config {
   Quality quality = Quality::kSmall;  // live default; init may change per machine
   int threads = 0;                    // 0 = auto (physical cores, see profile)
   int cpu_budget = 0;                 // 0 = unset; else percentage
-  std::string device;                 // capture device substring; empty = default
+  std::string device;                 // input device substring; empty = default source
+  CaptureSelection source = CaptureSelection::kDefault;
   Storage storage = Storage::kDisk;
   Format format = Format::kWav;
   int window_sec = 30;                // live transcription window

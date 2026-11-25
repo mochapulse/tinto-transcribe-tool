@@ -15,6 +15,12 @@
 #include "json.hpp"
 #include "tinto/paths.hpp"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 namespace tinto {
 namespace {
 
@@ -23,6 +29,70 @@ namespace fs = std::filesystem;
 // ordered_json keeps the key order of arch-09-profile.sh (plain json sorts keys).
 using json = nlohmann::ordered_json;
 
+#ifdef _WIN32
+std::string DetectCpuName() {
+  wchar_t name[256] = {};
+  DWORD size = sizeof name;
+  if (RegGetValueW(HKEY_LOCAL_MACHINE,
+                   L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",
+                   L"ProcessorNameString", RRF_RT_REG_SZ, nullptr, name,
+                   &size) != ERROR_SUCCESS) {
+    return {};
+  }
+
+  const int length = WideCharToMultiByte(CP_UTF8, 0, name, -1, nullptr, 0,
+                                         nullptr, nullptr);
+  if (length <= 1) return {};
+  std::string utf8(length, '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8.data(), length, nullptr,
+                          nullptr) == 0) {
+    return {};
+  }
+  utf8.pop_back();  // The Windows conversion includes the terminating NUL.
+  return utf8;
+}
+
+int DetectPhysicalCores() {
+  DWORD bytes = 0;
+  GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &bytes);
+  if (bytes == 0) return 0;
+
+  using Entry = SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX;
+  std::vector<Entry> buffer((bytes + sizeof(Entry) - 1) / sizeof(Entry));
+  if (!GetLogicalProcessorInformationEx(RelationProcessorCore, buffer.data(),
+                                        &bytes)) {
+    return 0;
+  }
+
+  int cores = 0;
+  const auto* data = reinterpret_cast<const unsigned char*>(buffer.data());
+  for (DWORD offset = 0; offset < bytes;) {
+    const auto* entry = reinterpret_cast<const Entry*>(data + offset);
+    if (entry->Size == 0 || entry->Size > bytes - offset) return 0;
+    if (entry->Relationship == RelationProcessorCore) ++cores;
+    offset += entry->Size;
+  }
+  return cores;
+}
+
+void DetectHardware(Profile& p) {
+  p.os = "Windows";
+  p.distro = "n/a";
+  p.cpu = DetectCpuName();
+  p.cores_physical = DetectPhysicalCores();
+  p.threads_logical =
+      static_cast<int>(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
+  MEMORYSTATUSEX memory{};
+  memory.dwLength = sizeof memory;
+  if (GlobalMemoryStatusEx(&memory)) {
+    p.ram_gb = static_cast<int>(memory.ullTotalPhys / (1024ull * 1024 * 1024));
+  }
+  p.avx2 = IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE) != 0;
+  // This Windows build path uses CPU inference. A GPU alone does not imply
+  // that the corresponding whisper backend is enabled.
+  p.accel = "cpu";
+}
+#else
 constexpr const char* kWhitespace = " \t\r\n";
 
 std::string Trim(const std::string& s) {
@@ -109,13 +179,7 @@ void DetectCpu(Profile& p) {
   const int cores_per_socket = ToInt(LscpuField(lscpu, "Core(s) per socket"));
   const int sockets = ToInt(LscpuField(lscpu, "Socket(s)"));
   p.threads_logical = ToInt(RunCommand("nproc 2>/dev/null"));
-  if (p.threads_logical < 1) {
-    p.threads_logical = static_cast<int>(std::thread::hardware_concurrency());
-  }
-  if (p.threads_logical < 1) p.threads_logical = 1;
-
   p.cores_physical = cores_per_socket * sockets;
-  if (p.cores_physical < 1) p.cores_physical = p.threads_logical;
 }
 
 // MemTotal from /proc/meminfo, in whole GB (0 when unknown).
@@ -152,6 +216,19 @@ std::string DetectGpu() {
   return joined;
 }
 
+void DetectHardware(Profile& p) {
+  p.os = DetectOs();
+  p.distro = DetectDistro();
+  DetectCpu(p);
+  p.ram_gb = DetectRamGb();
+  p.avx2 = DetectAvx2();
+  p.gpu = DetectGpu();
+  p.accel = "cpu";
+  if (HasCommand("nvidia-smi")) p.accel = "cuda";
+  if (HasCommand("rocminfo")) p.accel = "rocm";
+}
+#endif
+
 // Same heuristic as examples/hardware-profiler/arch-09-profile.sh.
 void Decide(Profile& p) {
   p.threads_batch = p.cores_physical > 0 ? p.cores_physical : 1;
@@ -180,9 +257,17 @@ void Decide(Profile& p) {
   }
 }
 
-// ISO 8601 local time with offset, e.g. 2026-11-24T16:32:00+01:00.
+// ISO 8601 timestamp with a UTC marker or local offset.
 std::string IsoTimestampNow() {
   const std::time_t now = std::time(nullptr);
+#ifdef _WIN32
+  // UTC avoids platform-specific time-zone offset formatting.
+  std::tm utc{};
+  if (gmtime_s(&utc, &now) != 0) return {};
+  std::ostringstream out;
+  out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+  return out.str();
+#else
   const std::tm* local = std::localtime(&now);
   std::ostringstream out;
   out << std::put_time(local, "%Y-%m-%dT%H:%M:%S");
@@ -191,23 +276,19 @@ std::string IsoTimestampNow() {
   std::string offset = zone;
   if (offset.size() == 5) offset.insert(3, ":");
   return out.str() + offset;
+#endif
 }
 
 }  // namespace
 
 Profile DetectAndDecide() {
   Profile p;
-  p.os = DetectOs();
-  p.distro = DetectDistro();
-  DetectCpu(p);
-  p.ram_gb = DetectRamGb();
-  p.avx2 = DetectAvx2();
-  p.gpu = DetectGpu();
-
-  p.accel = "cpu";
-  if (HasCommand("nvidia-smi")) p.accel = "cuda";
-  if (HasCommand("rocminfo")) p.accel = "rocm";
-
+  DetectHardware(p);
+  if (p.threads_logical < 1) {
+    p.threads_logical = static_cast<int>(std::thread::hardware_concurrency());
+  }
+  if (p.threads_logical < 1) p.threads_logical = 1;
+  if (p.cores_physical < 1) p.cores_physical = p.threads_logical;
   Decide(p);
   return p;
 }

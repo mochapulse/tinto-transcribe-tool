@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 // Storage helpers: a WAV writer for captured audio and a size-based retention
 // pruner for the recordings directory. Audio is files, never a database.
@@ -28,6 +29,11 @@ class WavWriter {
   // `samples`. Returns false if the writer is not open or the write failed.
   bool Write(const float* samples, std::size_t frame_count);
 
+  // Write mono audio on the session timeline. Fill gaps with silence and trim
+  // overlap so offsets in the file continue to match transcript timestamps.
+  bool WriteAligned(std::uint64_t start_frame, const float* samples,
+                    std::size_t frame_count);
+
   // Finalize the WAV header and release the file. Idempotent.
   void Close();
 
@@ -35,6 +41,9 @@ class WavWriter {
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
+
+// Read a local audio file as 16 kHz mono float PCM. Throws on invalid input.
+std::vector<float> ReadMonoWav(const std::filesystem::path& path);
 
 // Deletes the oldest regular files directly inside `dir` (by last_write_time)
 // until their combined size is at most `max_total_bytes`. Subdirectories are

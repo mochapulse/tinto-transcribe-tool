@@ -4,13 +4,12 @@
 #include <cstddef>
 #include <fstream>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <vector>
 
-#include "tinto/capture.hpp"
+#include "tinto/audio_mixer.hpp"
 #include "tinto/config.hpp"
 #include "tinto/gate.hpp"
+#include "tinto/speech_window.hpp"
 #include "tinto/storage.hpp"
 #include "tinto/transcriber.hpp"
 
@@ -30,12 +29,12 @@ class Pipeline {
   Pipeline& operator=(const Pipeline&) = delete;
 
   bool Start();
-  void Run(std::atomic<bool>& stop_flag);
-  void Finish();
+  void Run(const CancelTranscription& stop_requested,
+           const CancelTranscription& cancel_requested);
 
  private:
-  void OnAudio(const AudioFrame& frame);
-  void ProcessBuffer();
+  void Finish(const CancelTranscription& should_cancel);
+  void ProcessBuffer(bool final, const CancelTranscription& should_cancel);
   void WriteTranscriptHeader();
   void AppendTranscript(const SpeechSegment& seg, const Transcript& tx);
 
@@ -47,14 +46,19 @@ class Pipeline {
   std::unique_ptr<ITranscriber> transcriber_;
   WavWriter wav_writer_;
 
-  std::mutex audio_mutex_;
-  std::vector<float> audio_buf_;
+  AudioMixer mixer_;
+  SpeechWindowBuffer windows_;
+  std::atomic<bool> accept_audio_{false};
 
   std::string wav_path_;
+  std::string wav_staging_path_;
   std::string md_path_;
   std::ofstream md_file_;
 
   std::size_t segments_written_ = 0;
+  bool transcription_interrupted_ = false;
+  bool aligned_wav_ok_ = true;
+  bool started_ = false;
   bool finished_ = false;
 };
 

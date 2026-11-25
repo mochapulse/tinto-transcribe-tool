@@ -20,8 +20,11 @@ class IGate {
   // Feed mono 16 kHz samples (any chunk size).
   virtual void Feed(const float* samples, std::size_t count) = 0;
 
-  // Return speech segments ready since the last call (may be empty).
-  virtual std::vector<SpeechSegment> Drain() = 0;
+  // Return ready speech segments. On the final call, flush trailing speech.
+  virtual std::vector<SpeechSegment> Drain(bool final = false) = 0;
+
+  // Latest session time before which no deferred speech remains.
+  virtual double StableThrough() const = 0;
 };
 
 }  // namespace tinto

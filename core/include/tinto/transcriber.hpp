@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -18,15 +19,19 @@ struct Token {
 struct Transcript {
   std::string text;            // full text of this window
   std::vector<Token> tokens;   // optional word-level timing
+  bool interrupted = false;   // cancellation left part of the window unfinished
 };
+
+using CancelTranscription = std::function<bool()>;
 
 class ITranscriber {
  public:
   virtual ~ITranscriber() = default;
 
-  // Transcribe a window of mono audio. `sample_rate` is normally 16000.
+  // Transcribe a window of mono audio. Poll cancellation at backend checkpoints.
   virtual Transcript Transcribe(const float* samples, std::size_t count,
-                                std::uint32_t sample_rate) = 0;
+                                std::uint32_t sample_rate,
+                                const CancelTranscription& should_cancel) = 0;
 };
 
 }  // namespace tinto

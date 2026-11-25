@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "diarize.hpp"
 #include "tinto/config.hpp"
 #include "tinto/daemon.hpp"
 #include "tinto/models.hpp"
@@ -29,8 +30,15 @@ int Usage(std::ostream& os) {
      << "Commands:\n"
      << "  init      Profile this machine and write ~/.tinto/profile.json\n"
      << "  record    Start recording/transcribing in the background\n"
-     << "  status    Show what the background worker is doing\n"
+     << "  record -f Record/transcribe in the foreground (Ctrl+C to stop)\n"
+     << "  status    Report whether the worker is active\n"
      << "  stop      Finalize outputs and stop the worker\n"
+     << "  diarize   Label speakers in a completed transcript locally\n"
+     << "\n"
+     << "Record options:\n"
+     << "  --source {input|system|both}  Choose audio sources\n"
+     << "  --device NAME                 Select an input by name\n"
+     << "  --diarize                     Save a time-aligned WAV in mode 2 for later labeling\n"
      << "\n"
      << "  --version Print version and exit\n"
      << "  --help    Print this help and exit\n";
@@ -53,7 +61,7 @@ int CmdInit() {
             << p.cores_physical << "c / " << p.threads_logical
             << "t, AVX2=" << (p.avx2 ? "true" : "false") << ")\n"
             << "  RAM         : " << p.ram_gb << " GB\n"
-            << "  GPU / accel : " << (p.gpu.empty() ? "none" : p.gpu) << " -> "
+            << "  GPU / accel : " << (p.gpu.empty() ? "unknown" : p.gpu) << " -> "
             << p.accel << "\n"
             << "  OS          : " << p.os << " / " << p.distro << "\n"
             << "--- chosen defaults ---\n"
@@ -67,6 +75,16 @@ int CmdInit() {
 }
 
 int CmdRecord(const tinto::Config& cfg) {
+  if (cfg.diarize && cfg.mode != tinto::Mode::kRecordTranscribe) {
+    std::cerr << "record: --diarize requires --mode 2 to keep audio for speaker labeling\n";
+    return 2;
+  }
+#ifndef TINTO_WITH_DIARIZATION
+  if (cfg.diarize) {
+    std::cerr << "record: this build has no speaker diarization support\n";
+    return 1;
+  }
+#endif
   tinto::paths::ensure_layout();
 
   const auto existing_pid = tinto::ReadPid();
@@ -98,29 +116,20 @@ int CmdRecord(const tinto::Config& cfg) {
 
   if (!cfg.foreground) {
     const auto log = tinto::paths::logs_dir() / "tinto.log";
-    if (!tinto::Daemonize(log)) {
-      return 0;
-    }
+    const auto result = tinto::Daemonize(log);
+    if (result == tinto::DaemonizeResult::kParent) return 0;
+    if (result == tinto::DaemonizeResult::kError) return 1;
   }
 
-  if (!tinto::WritePidFile()) {
-    std::cerr << "record: failed to write PID file\n";
-    return 1;
-  }
-
-  auto& stop_flag = tinto::InstallSignalHandlers();
-
+  tinto::WorkerControl worker;
+  if (!worker.Acquire()) return 1;
   tinto::Pipeline pipeline(cfg, std::move(model_paths));
-  if (!pipeline.Start()) {
-    tinto::RemovePidFile();
-    return 1;
-  }
+  if (!pipeline.Start() || !worker.Publish()) return 1;
 
-  pipeline.Run(stop_flag);
-  pipeline.Finish();
+  pipeline.Run([&worker] { return worker.StopRequested(); },
+               [&worker] { return worker.CancelRequested(); });
 
   std::cout << "record: shutting down\n";
-  tinto::RemovePidFile();
   return 0;
 }
 
@@ -150,10 +159,7 @@ int CmdStop() {
     return 1;
   }
 
-  if (!tinto::SendStop(pid)) {
-    std::cerr << "stop: failed to send stop signal to PID " << pid << "\n";
-    return 1;
-  }
+  if (!tinto::SendStop(pid)) return 1;
 
   std::cout << "stop: sent shutdown signal to PID " << pid << "\n";
   return 0;
@@ -170,12 +176,21 @@ bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
     };
     if (a == "-f" || a == "--foreground") {
       cfg.foreground = true;
+    } else if (a == "--diarize") {
+      cfg.diarize = true;
     } else if (a == "--lang") {
       if (!next(cfg.lang)) return false;
     } else if (a == "--out") {
       if (!next(cfg.out)) return false;
     } else if (a == "--device") {
       if (!next(cfg.device)) return false;
+    } else if (a == "--source") {
+      std::string value;
+      if (!next(value)) return false;
+      if (value == "input") cfg.source = tinto::CaptureSelection::kInput;
+      else if (value == "system") cfg.source = tinto::CaptureSelection::kSystem;
+      else if (value == "both") cfg.source = tinto::CaptureSelection::kBoth;
+      else { error = "unknown source: " + value; return false; }
     } else if (a == "--mode") {
       std::string val;
       if (!next(val)) return false;
@@ -201,6 +216,10 @@ bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
       return false;
     }
   }
+  if (cfg.source == tinto::CaptureSelection::kSystem && !cfg.device.empty()) {
+    error = "--device selects an input and cannot be used with --source system";
+    return false;
+  }
   return true;
 }
 
@@ -219,6 +238,7 @@ int main(int argc, char** argv) {
 
   const std::string command = args[0];
   std::vector<std::string> rest(args.begin() + 1, args.end());
+  if (command == "diarize") return CmdDiarize(rest);
 
   tinto::Config cfg = tinto::DefaultConfig();
   if (auto profile = tinto::ReadProfile(); profile.has_value()) {

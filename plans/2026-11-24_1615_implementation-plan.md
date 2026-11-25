@@ -3,8 +3,8 @@
 - **Created:** 2026-11-24 16:15 (America/Bogota, UTC−05)
 - **Descriptor:** Full implementation plan and design decisions for the tinto CLI
   (passive meeting recorder & transcriber). CLI first; UI later.
-- **Status:** Design complete and validated end-to-end on the dev box
-  (Arch, Ryzen 7 7730U, CPU-only). Core not yet implemented.
+- **Status:** Shared recording pipeline with foreground and background CLI
+  control on Linux and Windows 11. Windows release packaging is pending.
 
 This is the authoritative design record. `README.md` (users) and `AGENTS.md`
 (contributor conventions) are intentionally short and point here for detail.
@@ -65,9 +65,12 @@ Best practices for the core:
   `ma_device` per source.
 - **Synchronize to one clock:** each device drifts; resample every source to a
   common **16 kHz mono** stream and timestamp chunks with a monotonic clock.
-- **Follow the default device; handle hotplug** via miniaudio
-  `notificationCallback` (`default_device_changed`, `rerouted`). Never latch onto
-  "the first monitor".
+- **Follow the default device; handle hotplug** by periodically reconciling the
+  enumerated endpoints on the pipeline thread. Open the default sink's own
+  monitor on Linux. Recheck input transport before opening a new default mic.
+- **Mix on the shared clock.** A bounded 30-second ring aligns input blocks
+  against a monotonic sample timeline. A 150 ms holdback absorbs callback
+  jitter. Missing channels contribute silence rather than extending the timeline.
 - **Bluetooth policy:** a BT output *monitor* is a clean passive tap. A BT *mic*
   is inherently intrusive (forces A2DP→HSP/HFP, degrades playback, can stall on
   first open) — opt-in with a warning, never default.
@@ -99,8 +102,11 @@ Best practices for the core:
   **not** lower pure-speech RTF, so a slow model still lags on dense speech.
 - **Live mode must buffer ~30 s windows, not small chunks.** whisper encodes in
   fixed 30 s windows at a per-window cost (turbo ≈ 15.7 s/window on this CPU), so
-  tiny chunks make RTF explode (~3×). Stream with ~30 s windows + overlap. This
-  window size, not the model alone, is the main real-time lever.
+  tiny chunks make RTF explode (~3×). Join nearby VAD regions on the original
+  session timeline into windows of up to 30 s. Keep short pauses and flush
+  sooner when VAD confirms a longer pause or recording ends. This window
+  size, not the model alone, is the main real-time lever. Markdown uses
+  Whisper's segment timestamps within each window, with millisecond precision.
 
 ## 5. Modes
 
@@ -139,9 +145,15 @@ Best practices for the core:
 
 ## 7. Speaker differentiation, timestamps & API fallback
 
-- **Diarization (not identity):** tell voices apart as anonymous `Speaker 1/2/…`
-  via sherpa-onnx (language-independent). Opt-in (`--diarize`), fits batch/record;
-  online/live diarization is later work. (`tinydiarize` rejected: English-only.)
+- **Diarization (not identity):** use sherpa-onnx offline on CPU with
+  Pyannote 3.0 int8 segmentation and TitaNet Small speaker embeddings. It is
+  an opt-in x64 build dependency (`TINTO_WITH_DIARIZATION`). `record --mode 2
+  --diarize` preserves the WAV/Markdown timeline by filling gaps with synthetic
+  silence. The separate `diarize` command reads that WAV after recording and
+  writes an annotated `.speakers.md` without changing the original transcript.
+  Labels are anonymous and local to a recording. Assign labels by time overlap,
+  showing multiple labels or `Unknown speaker` when appropriate. Mode 3 keeps
+  no WAV. Live diarization is later work.
 - **Timestamps:** segment-level on by default; word-level opt-in
   (`--word-timestamps`) via whisper.cpp DTW (`--dtw <preset>`). Preset must match
   the model; `small` has one (synergy with the live pick), turbo/large-v3 may
@@ -169,19 +181,33 @@ Best practices for the core:
 Daemon-oriented: `record` starts a background worker and returns the terminal.
 
 - **`init`** — profile machine, write defaults. `--calibrate` for benchmarked.
-- **`record`** — start the pipeline in the selected mode; **detaches** (fork +
-  `setsid`, stdio → log file) and returns, printing PID/handle. Flags override
+- **`record`** — start the pipeline in the selected mode and detach (fork +
+  `setsid` on Linux, detached child process on Windows). Redirect stdio to the
+  log and print the worker PID. Flags override
   the profile. `--foreground`/`-f` stays attached (debug/systemd).
 - **`status`** — report the worker (mode, model, uptime, output, segments,
   CPU/threads, disk/RAM, device). Non-zero if none running.
 - **`stop`** — graceful shutdown (flush, finalize `.md`/audio, cleanup, remove
   PID/socket). Hard kill only with `--force`.
-- **Control plane:** per-instance PID file + control socket under
-  `~/.tinto/state/`. Unix domain socket on Linux/macOS, named pipe on Windows,
-  behind one abstraction.
+- **`diarize`** — label speakers in a finished mode 2 recording prepared with
+  `--diarize`. This runs independently from capture and Whisper.
+- **Control plane:** an instance lock and a PID file under `~/.tinto/state/`.
+  Linux requests shutdown with SIGTERM. Windows uses a local named pipe scoped
+  to the instance and PID, then waits for the worker to finalize its files.
+  Foreground recording also handles Ctrl+C (and Ctrl+Break on Windows).
+  The Windows profiler uses the shared CPU model-selection rules.
+- **Transcription shutdown:** stop accepting audio on the first request and
+  give outstanding speech up to 25 seconds to finish. A second console stop
+  signal cancels immediately at a backend checkpoint. Keep completed text,
+  do not restart an interrupted batch, and mark a partial transcript. WAV
+  finalization does not depend on ASR finishing.
+  The pinned Whisper checkout is patched to forward its existing abort
+  callback to the CPU backend during graph computation, not just after an
+  encoder or decoder pass.
 - One active worker per instance (named/multiple sessions = later work).
 - **Config surface (flags):** `--mode`, `--quality {base|small|medium|turbo}`,
-  `--device`, `--threads`/`--cpu-budget`, `--storage {ram|disk}`,
+  `--source {input|system|both}`, `--device`, `--threads`/`--cpu-budget`,
+  `--storage {ram|disk}`,
   `--format {wav|opus}`, `--retention`, `--window-sec`, `--lang`, `--out`,
   `--diarize`, `--word-timestamps`, `--backend {local|groq}`.
 
@@ -224,13 +250,40 @@ On the dev box (Arch, PipeWire 1.6.9 + PulseAudio compat, Ryzen 7 7730U, CPU-onl
 - **Hardware profiler** (`examples/hardware-profiler`): picks live=small/6,
   batch=turbo/8 on this box — matches the benchmarked decision.
 
+On Windows 11 (native x64 MSVC builds launched from WSL via `/mnt/c/`):
+
+- CTest passes with and without Whisper. `init` writes a Windows hardware
+  profile and a detached worker that fails to start returns an error.
+- Foreground WASAPI loopback produces a valid WAV from a synthetic tone and
+  exits cleanly on Ctrl+Break. Silero and Whisper transcribe synthetic speech
+  to Markdown in mode 3, then finalize on Ctrl+C without writing a WAV.
+  `status` reports the active worker and the PID file is removed on exit.
+- Windows opens the built-in microphone and WASAPI loopback simultaneously
+  and delivers samples from both. The detached worker rejects a concurrent
+  launch. `stop` finalizes WAV and Markdown files and removes its PID.
+- The optional native `whisper-cancel` test exercises cancellation inside
+  inference without opening an audio device.
+- In a native Windows loopback test with three synthesized Latin American
+  Spanish phrases, Medium recognized expected words from each phrase and
+  finalized the Markdown on the first Ctrl+C without writing a WAV. A second
+  Ctrl+C during a Turbo shutdown cancelled pending inference and kept a
+  complete partial-transcript notice.
+- The offline speaker engine processed a five-minute Spanish synthetic
+  fixture in 28.60 seconds using two CPU threads (RTF 0.095). It found two
+  clusters, matched all 40 isolated turns, and labeled all seven overlap
+  intervals with both speakers. This is not a natural-meeting accuracy
+  measurement.
+- A native Windows mode 2 record/stop/diarize test preserved leading silence
+  in the aligned WAV, labeled the latest session, and kept the original
+  Markdown unchanged.
+
 ## 13. Remaining / open items
 
 - Build toolchain specifics and how the (later) UI binds to the C/C++ core.
 - Exact Spanish fine-tune to ship (evaluate on Colombian audio); model licenses.
 - Storage watcher retention policy details.
-- Capture on Windows 11 and Debian (no machines available yet; pattern is
-  standard WASAPI loopback / Pulse monitor).
+- Validate capture and endpoint changes on Debian/Arch (Pulse monitor) and
+  exercise Windows hotplug with physical devices.
 - miniaudio Linux monitor-source selection following the current default sink.
 
 ## 14. Milestones
