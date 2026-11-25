@@ -100,6 +100,11 @@ Best practices for the core:
 - **VAD is also the #1 performance lever:** it skips non-speech, cutting the
   *effective* RTF roughly by the silence fraction (~50% on a podcast). It does
   **not** lower pure-speech RTF, so a slow model still lags on dense speech.
+- **Bound repeated VAD work during quiet periods.** When Silero confirms at
+  least five seconds of silence before any deferred utterance, retain two
+  seconds of stable acoustic history and the unanalyzed tail. Advance the
+  timeline by the discarded prefix so saved speech and speaker labels retain
+  their original timestamps. Do not compact into an unfinished utterance.
 - **Live mode must buffer ~30 s windows, not small chunks.** whisper encodes in
   fixed 30 s windows at a per-window cost (turbo ≈ 15.7 s/window on this CPU), so
   tiny chunks make RTF explode (~3×). Join nearby VAD regions on the original

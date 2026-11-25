@@ -24,6 +24,11 @@ constexpr std::size_t kMinDrainSamples = 5 * kSampleRate;
 // otherwise speech may still be in progress and the audio is kept.
 constexpr std::size_t kTailSamples = 1 * kSampleRate;
 
+// Keep acoustic history before the stable boundary because each Silero pass
+// starts with fresh recurrent state. Do not shift ordinary short pauses.
+constexpr std::size_t kSilenceHistorySamples = 2 * kSampleRate;
+constexpr std::size_t kSilenceTrimSamples = 5 * kSampleRate;
+
 // Hard bound on buffered audio when no segment completes (e.g. VAD failure).
 constexpr std::size_t kMaxBufferSamples = 60 * kSampleRate;
 
@@ -93,6 +98,11 @@ class WhisperVadGate final : public IGate {
                            buffer_.begin() + static_cast<std::ptrdiff_t>(end));
         out.push_back(std::move(seg));
         consumed = end;
+      }
+      // A long prefix without deferred speech need not be scanned on every
+      // poll. Never compact into a speech segment that is still in progress.
+      if (!final && stable >= consumed + kSilenceTrimSamples) {
+        consumed = stable - kSilenceHistorySamples;
       }
       stable_through_ = std::max(stable_through_, offset_ + stable);
       whisper_vad_free_segments(segs);

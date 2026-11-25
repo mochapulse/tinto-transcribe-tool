@@ -64,6 +64,13 @@ if(BUILD_TESTING)
   add_executable(speech-window-test tests/speech-window.cpp)
   target_link_libraries(speech-window-test PRIVATE tinto_core)
   add_test(NAME speech-window COMMAND speech-window-test)
+  if(TINTO_WITH_WHISPER)
+    # Exercise the actual buffer with a deterministic VAD in place of inference.
+    add_executable(vad-buffer-test tests/vad-buffer.cpp core/src/gate_whisper_vad.cpp)
+    target_include_directories(vad-buffer-test PRIVATE core/include
+      "${whisper_SOURCE_DIR}/include" "${whisper_SOURCE_DIR}/ggml/include")
+    add_test(NAME vad-buffer COMMAND vad-buffer-test)
+  endif()
   add_executable(diarization-test tests/diarization.cpp)
   target_link_libraries(diarization-test PRIVATE tinto_core)
   if(MSVC)
