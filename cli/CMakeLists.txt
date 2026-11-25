@@ -18,6 +18,11 @@ elseif(TINTO_DIARIZATION_LIBS)
   set_target_properties(tinto PROPERTIES INSTALL_RPATH "$ORIGIN/lib")
   install(FILES ${TINTO_DIARIZATION_LIBS} DESTINATION lib COMPONENT TintoRuntime)
 endif()
+if(TINTO_WITH_DIARIZATION)
+  install(FILES "${PROJECT_SOURCE_DIR}/licenses/sherpa-onnx.txt"
+                "${PROJECT_SOURCE_DIR}/licenses/onnx-runtime.txt"
+    DESTINATION licenses COMPONENT TintoRuntime)
+endif()
 if(TINTO_WITH_WHISPER)
   install(FILES "${whisper_SOURCE_DIR}/LICENSE" DESTINATION licenses
     RENAME whisper.txt COMPONENT TintoRuntime)
