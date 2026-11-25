@@ -19,12 +19,6 @@ namespace {
 
 namespace fs = std::filesystem;
 
-void PrintUsage() {
-  std::cout << "Usage: tinto diarize [transcript.md] [--audio aligned.wav] "
-               "[--speakers N] [--threads N] [--out FILE]\n"
-            << "With no transcript path, use the latest session recorded with --diarize.\n";
-}
-
 #ifdef TINTO_WITH_DIARIZATION
 struct Options {
   fs::path transcript;
@@ -51,13 +45,14 @@ Options Parse(const std::vector<std::string>& args) {
     if (!arg.empty() && arg[0] != '-') {
       if (!opts.transcript.empty()) throw std::invalid_argument("expected one transcript path");
       opts.transcript = arg;
-    } else if (arg == "--audio" || arg == "--out" || arg == "--threads" || arg == "--speakers") {
+    } else if (arg == "--audio" || arg == "-a" || arg == "--out" || arg == "-o" ||
+               arg == "--threads" || arg == "-t" || arg == "--speakers" || arg == "-s") {
       if (++i == args.size()) throw std::invalid_argument("missing value for " + arg);
       const auto& value = args[i];
-      if (arg == "--audio") opts.audio = value;
-      if (arg == "--out") opts.output = value;
-      if (arg == "--threads") opts.threads = PositiveInteger(value, arg);
-      if (arg == "--speakers") opts.speakers = PositiveInteger(value, arg);
+      if (arg == "--audio" || arg == "-a") opts.audio = value;
+      if (arg == "--out" || arg == "-o") opts.output = value;
+      if (arg == "--threads" || arg == "-t") opts.threads = PositiveInteger(value, arg);
+      if (arg == "--speakers" || arg == "-s") opts.speakers = PositiveInteger(value, arg);
     } else {
       throw std::invalid_argument("unknown option: " + arg);
     }
@@ -126,11 +121,8 @@ void Publish(const fs::path& output, const std::string& markdown) {
 }  // namespace
 
 int CmdDiarize(const std::vector<std::string>& args) {
-  if (args.size() == 1 && (args.front() == "--help" || args.front() == "-h")) {
-    PrintUsage();
-    return 0;
-  }
 #ifndef TINTO_WITH_DIARIZATION
+  (void)args;
   std::cerr << "diarize: this build has no speaker diarization support\n";
   return 1;
 #else

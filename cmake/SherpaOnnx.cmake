@@ -45,4 +45,7 @@ if(WIN32)
 else()
   set_target_properties(tinto_sherpa PROPERTIES
     IMPORTED_LOCATION "${sherpa_lib}/libsherpa-onnx-c-api.so")
+  set(TINTO_DIARIZATION_LIBS
+    "${sherpa_lib}/libsherpa-onnx-c-api.so"
+    "${sherpa_lib}/libonnxruntime.so")
 endif()

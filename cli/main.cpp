@@ -3,17 +3,20 @@
 // Daemon-oriented command surface (see the plan, §9):
 //   tinto init | record | status | stop
 
-#include <cstdlib>
-#include <cstring>
+#include <algorithm>
+#include <charconv>
 #include <exception>
 #include <iostream>
 #include <string>
 #include <vector>
 
+#include "diagnostics.hpp"
 #include "diarize.hpp"
+#include "help.hpp"
 #include "tinto/config.hpp"
 #include "tinto/daemon.hpp"
 #include "tinto/models.hpp"
+#include "tinto/model_install.hpp"
 #include "tinto/paths.hpp"
 #include "tinto/pipeline.hpp"
 #include "tinto/profile.hpp"
@@ -22,30 +25,7 @@
 
 namespace {
 
-int Usage(std::ostream& os) {
-  os << "tinto " << tinto::kVersion << " — passive meeting recorder & transcriber\n"
-     << "\n"
-     << "Usage: tinto <command> [options]\n"
-     << "\n"
-     << "Commands:\n"
-     << "  init      Profile this machine and write ~/.tinto/profile.json\n"
-     << "  record    Start recording/transcribing in the background\n"
-     << "  record -f Record/transcribe in the foreground (Ctrl+C to stop)\n"
-     << "  status    Report whether the worker is active\n"
-     << "  stop      Finalize outputs and stop the worker\n"
-     << "  diarize   Label speakers in a completed transcript locally\n"
-     << "\n"
-     << "Record options:\n"
-     << "  --source {input|system|both}  Choose audio sources\n"
-     << "  --device NAME                 Select an input by name\n"
-     << "  --diarize                     Save a time-aligned WAV in mode 2 for later labeling\n"
-     << "\n"
-     << "  --version Print version and exit\n"
-     << "  --help    Print this help and exit\n";
-  return 0;
-}
-
-int CmdInit() {
+int CmdInit(bool skip_models) {
   tinto::paths::ensure_layout();
   const tinto::Profile p = tinto::DetectAndDecide();
   try {
@@ -71,6 +51,15 @@ int CmdInit() {
             << "\n"
             << "  window=" << p.window_sec << "s  lang=" << p.lang
             << "  backend=" << p.backend << "\n";
+  if (!skip_models) {
+    try {
+      tinto::InstallModels(std::cout);
+    } catch (const std::exception& error) {
+      std::cerr << "init: " << error.what() << "\n";
+      return 1;
+    }
+  }
+
   return 0;
 }
 
@@ -176,29 +165,29 @@ bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
     };
     if (a == "-f" || a == "--foreground") {
       cfg.foreground = true;
-    } else if (a == "--diarize") {
+    } else if (a == "--diarize" || a == "-D") {
       cfg.diarize = true;
-    } else if (a == "--lang") {
+    } else if (a == "--lang" || a == "-l") {
       if (!next(cfg.lang)) return false;
-    } else if (a == "--out") {
+    } else if (a == "--out" || a == "-o") {
       if (!next(cfg.out)) return false;
-    } else if (a == "--device") {
+    } else if (a == "--device" || a == "-d") {
       if (!next(cfg.device)) return false;
-    } else if (a == "--source") {
+    } else if (a == "--source" || a == "-s") {
       std::string value;
       if (!next(value)) return false;
       if (value == "input") cfg.source = tinto::CaptureSelection::kInput;
       else if (value == "system") cfg.source = tinto::CaptureSelection::kSystem;
       else if (value == "both") cfg.source = tinto::CaptureSelection::kBoth;
       else { error = "unknown source: " + value; return false; }
-    } else if (a == "--mode") {
+    } else if (a == "--mode" || a == "-m") {
       std::string val;
       if (!next(val)) return false;
       if (val == "record-only" || val == "1") cfg.mode = tinto::Mode::kRecordOnly;
       else if (val == "record+transcribe" || val == "2") cfg.mode = tinto::Mode::kRecordTranscribe;
       else if (val == "transcribe-only" || val == "3") cfg.mode = tinto::Mode::kTranscribeOnly;
       else { error = "unknown mode: " + val; return false; }
-    } else if (a == "--quality") {
+    } else if (a == "--quality" || a == "-q") {
       std::string val;
       if (!next(val)) return false;
       if (val == "base") cfg.quality = tinto::Quality::kBase;
@@ -206,11 +195,15 @@ bool ApplyFlags(tinto::Config& cfg, const std::vector<std::string>& args,
       else if (val == "medium") cfg.quality = tinto::Quality::kMedium;
       else if (val == "turbo") cfg.quality = tinto::Quality::kTurbo;
       else { error = "unknown quality: " + val; return false; }
-    } else if (a == "--threads") {
+    } else if (a == "--threads" || a == "-t") {
       std::string val;
       if (!next(val)) return false;
-      cfg.threads = std::atoi(val.c_str());
-      if (cfg.threads < 1) { error = "threads must be >= 1"; return false; }
+      const auto* end = val.data() + val.size();
+      const auto parsed = std::from_chars(val.data(), end, cfg.threads);
+      if (parsed.ec != std::errc{} || parsed.ptr != end || cfg.threads < 1) {
+        error = "threads must be a positive integer";
+        return false;
+      }
     } else {
       error = "unknown option: " + a;
       return false;
@@ -229,33 +222,52 @@ int main(int argc, char** argv) {
   std::vector<std::string> args(argv + 1, argv + argc);
 
   if (args.empty() || args[0] == "--help" || args[0] == "-h") {
-    return Usage(std::cout);
+    return PrintHelp(std::cout);
   }
-  if (args[0] == "--version" || args[0] == "-V") {
+  if (args[0] == "--version" || args[0] == "-v" || args[0] == "-V") {
     std::cout << tinto::kVersion << "\n";
     return 0;
   }
 
   const std::string command = args[0];
   std::vector<std::string> rest(args.begin() + 1, args.end());
-  if (command == "diarize") return CmdDiarize(rest);
-
-  tinto::Config cfg = tinto::DefaultConfig();
-  if (auto profile = tinto::ReadProfile(); profile.has_value()) {
-    tinto::MergeProfile(cfg, *profile);
+  if (std::any_of(rest.begin(), rest.end(), [](const auto& arg) {
+        return arg == "-h" || arg == "--help";
+      })) {
+    return PrintHelp(std::cout, command);
   }
-  std::string error;
-  if (!ApplyFlags(cfg, rest, error)) {
-    std::cerr << "tinto: " << error << "\n";
-    return 2;
+  if (command == "help" && rest.size() <= 1) {
+    return rest.empty() ? PrintHelp(std::cout) : PrintHelp(std::cout, rest[0]);
+  }
+  if (command == "init") {
+    if (rest.empty()) return CmdInit(false);
+    if (rest.size() == 1 && (rest[0] == "--skip-models" || rest[0] == "-n")) {
+      return CmdInit(true);
+    }
+  } else if (command == "record") {
+    tinto::Config cfg = tinto::DefaultConfig();
+    if (auto profile = tinto::ReadProfile(); profile.has_value()) {
+      tinto::MergeProfile(cfg, *profile);
+    }
+    std::string error;
+    if (!ApplyFlags(cfg, rest, error)) {
+      std::cerr << "record: " << error << "\n";
+      return 2;
+    }
+    return CmdRecord(cfg);
+  } else if (command == "diarize") {
+    return CmdDiarize(rest);
+  } else if (command == "status" || command == "stop" ||
+             command == "health" || command == "doctor") {
+    if (rest.empty()) {
+      if (command == "status") return CmdStatus();
+      if (command == "stop") return CmdStop();
+      return CmdDiagnostics(command == "doctor");
+    }
+  } else {
+    return PrintHelp(std::cerr, command);
   }
 
-  if (command == "init") return CmdInit();
-  if (command == "record") return CmdRecord(cfg);
-  if (command == "status") return CmdStatus();
-  if (command == "stop") return CmdStop();
-
-  std::cerr << "tinto: unknown command '" << command << "'\n";
-  Usage(std::cerr);
+  std::cerr << command << ": unexpected argument; see 'tinto help " << command << "'\n";
   return 2;
 }

@@ -23,6 +23,16 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 constexpr auto kDeviceCheckInterval = std::chrono::seconds(2);
+#ifdef _WIN32
+constexpr ma_backend kBackends[] = {ma_backend_wasapi};
+#else
+constexpr ma_backend kBackends[] = {ma_backend_pulseaudio, ma_backend_alsa};
+#endif
+
+bool InitContext(ma_context& context) {
+  return ma_context_init(kBackends, sizeof(kBackends) / sizeof(kBackends[0]),
+                         nullptr, &context) == MA_SUCCESS;
+}
 
 bool ContainsIgnoreCase(const std::string& haystack, const std::string& needle) {
   if (needle.size() > haystack.size()) return false;
@@ -94,13 +104,7 @@ class MiniaudioCapture final : public ICapture {
     want_input_ = selection != CaptureSelection::kSystem;
     want_system_ = selection != CaptureSelection::kInput;
 
-#ifdef _WIN32
-    constexpr ma_backend kBackends[] = {ma_backend_wasapi};
-#else
-    constexpr ma_backend kBackends[] = {ma_backend_pulseaudio, ma_backend_alsa};
-#endif
-    if (ma_context_init(kBackends, sizeof(kBackends) / sizeof(kBackends[0]),
-                        nullptr, &context_) != MA_SUCCESS) return false;
+    if (!InitContext(context_)) return false;
     context_initialized_ = true;
 
     UpdateDevices(true);
@@ -261,6 +265,21 @@ class MiniaudioCapture final : public ICapture {
 
 std::unique_ptr<ICapture> MakeCapture() {
   return std::make_unique<MiniaudioCapture>();
+}
+
+CaptureProbe ProbeCapture() {
+  ma_context context{};
+  CaptureProbe result;
+  if (!InitContext(context)) return result;
+  result.backend = ma_get_backend_name(context.backend);
+  ma_uint32 outputs = 0;
+  ma_uint32 inputs = 0;
+  result.enumerated = ma_context_get_devices(&context, nullptr, &outputs,
+                                              nullptr, &inputs) == MA_SUCCESS;
+  result.inputs = inputs;
+  result.outputs = outputs;
+  ma_context_uninit(&context);
+  return result;
 }
 
 }  // namespace tinto

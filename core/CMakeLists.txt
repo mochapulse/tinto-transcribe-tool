@@ -9,6 +9,7 @@ add_library(tinto_core STATIC
   src/diarization_labels.cpp
   src/daemon.cpp
   src/models.cpp
+  src/model_install.cpp
   src/pipeline.cpp
   src/whisper_info.cpp
 )
@@ -42,7 +43,7 @@ set_source_files_properties(src/capture_miniaudio.cpp src/storage.cpp
   PROPERTIES COMPILE_OPTIONS "${miniaudio_warning_option}")
 
 if(WIN32)
-  target_link_libraries(tinto_core PRIVATE advapi32 cfgmgr32 user32)
+  target_link_libraries(tinto_core PRIVATE advapi32 bcrypt cfgmgr32 user32)
 else()
   # miniaudio uses pthreads, libm and dlopen on Linux (PulseAudio/PipeWire).
   target_link_libraries(tinto_core PUBLIC pthread m dl)

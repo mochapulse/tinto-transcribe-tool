@@ -71,6 +71,10 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME diarization-alignment COMMAND diarization-test
     "${CMAKE_CURRENT_BINARY_DIR}/test-aligned.wav")
+  add_executable(model-cache-test tests/model-cache.cpp)
+  target_link_libraries(model-cache-test PRIVATE tinto_core)
+  add_test(NAME model-cache COMMAND model-cache-test
+    "${CMAKE_CURRENT_BINARY_DIR}/test model cache.bin")
   add_test(NAME cli-smoke COMMAND ${CMAKE_COMMAND}
     -DTINTO_EXE=$<TARGET_FILE:tinto>
     -DTINTO_VERSION=${TINTO_VERSION}
