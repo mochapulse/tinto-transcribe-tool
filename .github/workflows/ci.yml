@@ -51,7 +51,7 @@ jobs:
           -DTINTO_WITH_WHISPER=ON -DTINTO_WITH_DIARIZATION=ON
       - run: cmake --build build --config Release --parallel 2
       - run: ctest --test-dir build -C Release --output-on-failure
-      - run: cmake --install build --config Release --prefix stage
+      - run: cmake --install build --config Release --prefix stage --component TintoRuntime
       - name: Package and smoke test Linux
         if: matrix.platform == 'linux'
         shell: bash
@@ -80,7 +80,7 @@ jobs:
           $name = "tinto-v$version-windows-x86_64.zip"
           Compress-Archive -Path .\stage\* -DestinationPath "dist\$name"
           $hash = (Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLowerInvariant()
-          Set-Content "dist\$name.sha256" "$hash  $name" -Encoding ascii
+          [IO.File]::WriteAllText((Join-Path $PWD "dist\$name.sha256"), "$hash  $name`n")
       - uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.platform }}

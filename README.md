@@ -68,7 +68,7 @@ From a developer shell with CMake, a C++ compiler, Ninja, and Git:
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DTINTO_WITH_DIARIZATION=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
-cmake --install build --prefix stage
+cmake --install build --prefix stage --component TintoRuntime
 ```
 
 The staged directory contains the executable and any required runtime libraries.
